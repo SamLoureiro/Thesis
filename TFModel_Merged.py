@@ -3,6 +3,7 @@ import numpy as np
 import pandas as pd
 import librosa
 import librosa.display
+import scipy.signal
 from sklearn.model_selection import train_test_split
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -15,16 +16,63 @@ from sklearn.utils import class_weight, shuffle
 from keras.callbacks import EarlyStopping, ReduceLROnPlateau
 from sklearn.metrics import confusion_matrix, classification_report
 
-# Function to preprocess audio files by extracting MFCCs
-def preprocess_audio(audio_file, sr=192000, n_mfcc=40, max_pad_len=3500):
-    wave, sample_rate = librosa.load(audio_file, sr=sr)  # Load audio file
-    mfcc = librosa.feature.mfcc(y=wave, sr=sample_rate, n_mfcc=n_mfcc)  # Extract MFCC features
+# Function to load and preprocess audio files with MFCC and Log-MFE
+def preprocess_audio(file_path, sr=192000, n_mfcc=128, max_pad_len=3737):
+    # Load the audio file
+    wave, sample_rate = librosa.load(file_path, sr=sr)
+
+    # Check if the audio length is exactly 10 seconds
+    #print("Audio data length")
+    #print(len(wave) / sample_rate)
+    if int(len(wave) / sample_rate) != 10:
+        raise ValueError(f"Audio file {file_path} does not have exactly 10 seconds.")
+
+    # Parameters
+    n_mels = 114  # Starting with 128 Mel filters
+    fmax = sr / 2  # Set fmax to Nyquist frequency (96 kHz)
+
+    # Compute Mel filter bank
+    mel_filter_bank = librosa.filters.mel(sr=sr, n_fft=2048, n_mels=n_mels, fmax=fmax)
+
+    # Check for empty filters
+    empty_filters = np.sum(mel_filter_bank, axis=1) == 0
+    if np.any(empty_filters):
+        print(f"Warning: {np.sum(empty_filters)} empty filters detected. Consider adjusting n_mels or fmax.")
+
+    # Adjust n_mels if needed
+    while np.any(empty_filters):
+        n_mels -= 1  # Decrease n_mels
+        mel_filter_bank = librosa.filters.mel(sr=sr, n_fft=2048, n_mels=n_mels, fmax=fmax)
+        empty_filters = np.sum(mel_filter_bank, axis=1) == 0
+
+    #print(f"Number of Mel filters: {n_mels}")
+
+    # Generate Mel spectrogram
+    mel_spectrogram = librosa.feature.melspectrogram(y=wave, sr=sample_rate, n_fft=2048, hop_length=512, 
+                                                     window=scipy.signal.get_window('hamming', 2048), htk=False, 
+                                                     center=True, pad_mode='reflect', power=2.0, 
+                                                     n_mels=n_mels, fmax=fmax)
+    # Convert power spectrogram to decibel (log) scale
+    log_mel_spectrogram = librosa.power_to_db(mel_spectrogram, ref=np.max)
+
+    # Pad or truncate the log mel spectrogram to a fixed length
+    if log_mel_spectrogram.shape[1] > max_pad_len:
+        log_mel_spectrogram = log_mel_spectrogram[:, :max_pad_len]
+    elif log_mel_spectrogram.shape[1] < max_pad_len:
+        pad_width = max_pad_len - log_mel_spectrogram.shape[1]
+        log_mel_spectrogram = np.pad(log_mel_spectrogram, pad_width=((0, 0), (0, pad_width)), mode='constant')
+
+    # Compute MFCCs using the log mel spectrogram
+    mfcc = librosa.feature.mfcc(S=log_mel_spectrogram, sr=sample_rate, n_mfcc=n_mfcc)
+
+    # Pad or truncate MFCCs to a fixed length
     if mfcc.shape[1] > max_pad_len:
-        mfcc = mfcc[:, :max_pad_len]  # Truncate if necessary
-    else:
-        pad_width = max_pad_len - mfcc.shape[1]  # Pad if necessary
+        mfcc = mfcc[:, :max_pad_len]
+    elif mfcc.shape[1] < max_pad_len:
+        pad_width = max_pad_len - mfcc.shape[1]
         mfcc = np.pad(mfcc, pad_width=((0, 0), (0, pad_width)), mode='constant')
-    return mfcc
+    
+    return mfcc, log_mel_spectrogram
 
 def feature_normalize(data):
     mu = np.mean(data, axis=0)    # Calculate mean
@@ -57,10 +105,21 @@ def segment_signal(data, label, window_size=100):
 # Function to preprocess both audio and accelerometer data for sensor fusion
 def preprocess_data(audio_file, accel_file, class_label, max_audio_len=3737, accel_window_size=100):
     # Preprocess the audio file to extract MFCC features
-    audio_features = preprocess_audio(audio_file, max_pad_len=max_audio_len)
+    try:
+        audio_features, ___ = preprocess_audio(audio_file, max_pad_len=max_audio_len)
+    except ValueError as e:
+        print(e)
+        return None, None
     
     # Load the accelerometer data from the CSV file
     accel_data = pd.read_csv(accel_file)
+    
+    # Check if the accelerometer data has exactly 501 lines
+    #print("Accelerometer data length")
+    #print(len(accel_data))
+    if len(accel_data) != 500:
+        print(f"Accelerometer file {accel_file} does not have exactly 501 lines.")
+        return None, None
     
     # Normalize each column in the accelerometer data
     for col in ['accX_l', 'accY_l', 'accZ_l', 'gyrX_l', 'gyrY_l', 'gyrZ_l', 
@@ -103,6 +162,7 @@ liso_dir_audio = os.path.join(current_dir, 'Dataset_Piso', 'LISO', 'SAMPLES', 'A
 tijoleira_dir_acel = os.path.join(current_dir, 'Dataset_Piso', 'TIJOLEIRA', 'SAMPLES', 'ACEL')
 liso_dir_acel = os.path.join(current_dir, 'Dataset_Piso', 'LISO', 'SAMPLES', 'ACEL')
 
+
 # Load list of audio and accelerometer files
 tijoleira_files_audio = [os.path.join(tijoleira_dir_audio, file) for file in os.listdir(tijoleira_dir_audio) if file.endswith('.WAV')]
 liso_files_audio = [os.path.join(liso_dir_audio, file) for file in os.listdir(liso_dir_audio) if file.endswith('.WAV')]
@@ -115,14 +175,16 @@ y = []
 # Preprocess Tijoleira class data
 for audio_file, accel_file in zip(tijoleira_files_audio, tijoleira_files_acel):
     features, label = preprocess_data(audio_file, accel_file, 0)  # 0 for Tijoleira class
-    X.append(features)
-    y.append(label)
+    if features is not None:
+        X.append(features)
+        y.append(label)
 
 # Preprocess Liso class data
 for audio_file, accel_file in zip(liso_files_audio, liso_files_acel):
     features, label = preprocess_data(audio_file, accel_file, 1)  # 1 for Liso class
-    X.append(features)
-    y.append(label)
+    if features is not None:
+        X.append(features)
+        y.append(label)
 
 # One-hot encode labels
 y = to_categorical(y, num_classes=2)  # Assuming 2 classes (Tijoleira and Liso)
@@ -131,13 +193,14 @@ y = to_categorical(y, num_classes=2)  # Assuming 2 classes (Tijoleira and Liso)
 X, y = shuffle(X, y, random_state=42)
 
 # Remove samples with incorrect dimensions
-i = 0
+'''i = 0
 while i < len(X):
     if len(X[i]) != 9:
         X.pop(i)
         y = np.delete(y, i, axis=0)
         continue
-    i += 1
+    print(X[i].shape)
+    i += 1'''
 
 # Convert X to numpy array
 X = np.array(X)
