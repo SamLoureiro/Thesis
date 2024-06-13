@@ -192,22 +192,20 @@ y = to_categorical(y, num_classes=2)  # Assuming 2 classes (Tijoleira and Liso)
 # Shuffle the data
 X, y = shuffle(X, y, random_state=42)
 
-# Remove samples with incorrect dimensions
-'''i = 0
-while i < len(X):
-    if len(X[i]) != 9:
-        X.pop(i)
-        y = np.delete(y, i, axis=0)
-        continue
-    print(X[i].shape)
-    i += 1'''
-
 # Convert X to numpy array
 X = np.array(X)
 
+
 # Shape of X and y
-print('X shape:', X.shape)
-print('y shape:', y.shape)
+print('X shape:', X.shape)  # Example: (91, 9, 3500, 13)
+#     91: This is the number of data samples or segments.
+#     9: This is the number of segments per sample. Each sample has been divided into 9 segments.
+#     3500: This is the number of timesteps or the length of each segment. In the context of audio, it refers to the length of the MFCC feature array.
+#     13: This is the number of features per timestep. It represents the 13 features used in the model, combining the 1 MFCC feature and 12 accelerometer and gyroscope features.
+
+print('y shape:', y.shape)  # Example: (91, 2)
+#     91: This is the number of labels, corresponding to the 91 samples in the dataset.
+#     2: This is the number of classes, with each label being one-hot encoded. In this context, 2 likely represents two classes: "Tijoleira" and "Liso".
 
 # Expand dimensions for model input
 X = np.expand_dims(X, axis=-1)
