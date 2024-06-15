@@ -16,7 +16,23 @@ from sklearn.utils import class_weight, shuffle
 from keras.callbacks import EarlyStopping, ReduceLROnPlateau
 from sklearn.metrics import confusion_matrix, classification_report
 
+
+'''
+Para amanhã:
+- Dividir o dataset em samples de 2 segundos
+- Pré-processar os samples de áudio e acelerômetro
+- Criar um modelo de sensor fusion
+- Treinar o modelo
+'''
+
 # Function to load and preprocess audio files with MFCC and Log-MFE
+
+# Sampling rate (sr): Number of samples per second. In this case, sr=192000.
+# Frame length (n_fft): The length of the FFT window, which is 2048 samples in this case.
+# Hop length (hop_length): The number of samples between successive frames, which is 512 samples in this case
+# Number of Time Frames = [(Total Number of Samples − Frame Length)/Hop Length​⌉ + 1 = [(10*192000 - 2048)/512] + 1 = 3737
+# 10/3737 = 0.00268 seconds per frame
+
 def preprocess_audio(file_path, sr=192000, n_mfcc=128, max_pad_len=3737):
     # Load the audio file
     wave, sample_rate = librosa.load(file_path, sr=sr)
@@ -106,7 +122,7 @@ def segment_signal(data, label, window_size=100):
 def preprocess_data(audio_file, accel_file, class_label, max_audio_len=3737, accel_window_size=100):
     # Preprocess the audio file to extract MFCC features
     try:
-        audio_features, ___ = preprocess_audio(audio_file, max_pad_len=max_audio_len)
+        mfcc_features, mel_features = preprocess_audio(audio_file, max_pad_len=max_audio_len)
     except ValueError as e:
         print(e)
         return None, None
@@ -130,23 +146,23 @@ def preprocess_data(audio_file, accel_file, class_label, max_audio_len=3737, acc
     accel_segments, _ = segment_signal(accel_data, class_label, accel_window_size)
     
     # Add an extra dimension to the audio features to match the shape for Conv2D input
-    audio_features = np.expand_dims(audio_features, axis=2)
+    mfcc_features = np.expand_dims(mfcc_features, axis=2)
     
     # Determine the number of segments obtained from the accelerometer data
     num_segments = accel_segments.shape[0]
     
     # Repeat the audio features to match the number of accelerometer segments
     # Here, each segment of accelerometer data will be paired with the same audio features
-    audio_features_resampled = np.repeat(audio_features[:, :, np.newaxis], num_segments, axis=2)
+    mfcc_features_resampled = np.repeat(mfcc_features[:, :, np.newaxis], num_segments, axis=2)
     
     # Move the new axis to the front to match the shape (num_segments, max_audio_len, n_mfcc, 1)
-    audio_features_resampled = np.moveaxis(audio_features_resampled, 2, 0)
+    mfcc_features_resampled = np.moveaxis(mfcc_features_resampled, 2, 0)
     
     # Initialize an array to hold the combined features (audio and accelerometer)
     combined_features = np.zeros((num_segments, max(max_audio_len, accel_window_size), 13))
     
     # Fill the first channel (index 0) of combined features with audio features
-    combined_features[:, :audio_features_resampled.shape[1], 0] = audio_features_resampled[:, :, 0, 0]
+    combined_features[:, :mfcc_features_resampled.shape[1], 0] = mfcc_features_resampled[:, :, 0, 0]
     
     # Fill the remaining channels (index 1 to 12) with accelerometer segments
     combined_features[:, :accel_segments.shape[1], 1:] = accel_segments
@@ -198,17 +214,19 @@ X = np.array(X)
 
 # Shape of X and y
 print('X shape:', X.shape)  # Example: (91, 9, 3500, 13)
-#     91: This is the number of data samples or segments.
-#     9: This is the number of segments per sample. Each sample has been divided into 9 segments.
-#     3500: This is the number of timesteps or the length of each segment. In the context of audio, it refers to the length of the MFCC feature array.
-#     13: This is the number of features per timestep. It represents the 13 features used in the model, combining the 1 MFCC feature and 12 accelerometer and gyroscope features.
+# 91: Represents the 91 data points collected (including both Tijoleira and Liso classes).
+# 9: Represents the number of segments obtained from the accelerometer data for each data point (considering overlapping windows). There could be variations depending on the original accelerometer data length.
+# 3500: This is the maximum between the audio feature length (considering padding) and the accelerometer window size. In this example, the audio features are likely longer than the accelerometer segments.
+# 13: This combines the number of features from the audio and the accelerometer data. There could be multiple Mel-frequency cepstral coefficients (MFCCs) extracted from the audio, and each accelerometer axis (x, y, z) contributes one feature each.
 
 print('y shape:', y.shape)  # Example: (91, 2)
-#     91: This is the number of labels, corresponding to the 91 samples in the dataset.
-#     2: This is the number of classes, with each label being one-hot encoded. In this context, 2 likely represents two classes: "Tijoleira" and "Liso".
+# 91: This is the number of labels, corresponding to the 91 samples in the dataset.
+# 2: This is the number of classes, with each label being one-hot encoded. In this context, 2 likely represents two classes: "Tijoleira" and "Liso".
 
 # Expand dimensions for model input
 X = np.expand_dims(X, axis=-1)
+
+print('X shape after Expand:', X.shape)  # Example: (91, 9, 3500, 13)
 
 # Define the model
 model = Sequential()
@@ -250,9 +268,9 @@ early_stopping = EarlyStopping(monitor='val_loss', patience=10, restore_best_wei
 reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.1, patience=5)
 
 # Train the model
-history = model.fit(X, y, validation_split=0.2, epochs=40, batch_size=16, callbacks=[early_stopping, reduce_lr])
+'''history = model.fit(X, y, validation_split=0.2, epochs=40, batch_size=16, callbacks=[early_stopping, reduce_lr])
 
 # Evaluate the model
 loss, accuracy = model.evaluate(X, y)
 print(f'Test Loss: {loss}')
-print(f'Test Accuracy: {accuracy}')
+print(f'Test Accuracy: {accuracy}')'''
