@@ -7,6 +7,7 @@
 #include <Audio.h>
 #include <SerialFlash.h>
 #include "setI2SFreq.h"
+#include <string.h>
 
 Bounce2::Button button = Bounce2::Button();
 
@@ -208,7 +209,7 @@ void startSampling() {
         errorFile.println(",Accel Left Reconnected"); 
         digitalWrite(ERROR_PIN, LOW);
       }      
-      recordSensorData(&a_l, &g_l, acelFile, start_timestamp, current_timestamp);
+      recordSensorData(&a_l, &g_l, acelFile, start_timestamp, current_timestamp, true);
 
       sensors_event_t a_r, g_r, temp_r;
       mpu_r.getEvent(&a_r, &g_r, &temp_r);
@@ -237,7 +238,7 @@ void startSampling() {
         errorFile.print(millis()); 
         errorFile.println(",Accel Right Reconnected");      
       }
-      recordSensorData(&a_r, &g_r, acelFile, start_timestamp, current_timestamp);
+      recordSensorData(&a_r, &g_r, acelFile, start_timestamp, current_timestamp, false);
 
       acelFile.println();
 
@@ -255,7 +256,7 @@ void startSampling() {
   return;
 }
 
-void recordSensorData(sensors_event_t* a, sensors_event_t* g, File& file, unsigned long start_timestamp, unsigned long timestamp) {
+void recordSensorData(sensors_event_t* a, sensors_event_t* g, File& file, unsigned long start_timestamp, unsigned long timestamp, bool writetime) {
 
   float acc_x = a->acceleration.x * CONVERT_G_TO_MS2;
   float acc_y = a->acceleration.y * CONVERT_G_TO_MS2;
@@ -264,7 +265,10 @@ void recordSensorData(sensors_event_t* a, sensors_event_t* g, File& file, unsign
   float gyr_y = g->gyro.y;
   float gyr_z = g->gyro.z;
 
-  file.print(timestamp - start_timestamp);
+  if(writetime) {
+    file.print(timestamp - start_timestamp);
+  }
+  
   file.print(",");
   file.print(acc_x);
   file.print(",");
@@ -294,6 +298,10 @@ void startRecording() {
     // must be deleted before new data is written.
     SD.remove("RECORD.WAV");
   }
+  /*nt wav_n = 0;
+  while(SD.exists("RECORD" + String(wav_n) + ".WAV")) {
+    wav_n++;
+  }*/
   audio_data = SD.open("RECORD.WAV", FILE_WRITE);
 
   if (audio_data) {
@@ -351,20 +359,6 @@ void stopRecording() {
   errorFile.println(",stopRecording");
 
   updateDataSizeInHeader(audio_data);
-
-  /*// Define WAV file parameters
-  int sampleRate = 192000; // Change as needed
-  int bitDepth = 16;       // Change as needed
-  int channels = 1;        // Change as needed*/
-
-  // Copy the file and add WAV header
-  /*if (copyFileWithWavHeader(sampleRate, bitDepth, channels)) {
-    Serial.println("File copied and WAV header added successfully.");
-  } else {
-    Serial.println("File copy or WAV header addition failed.");
-    digitalWrite(ERROR_PIN, HIGH);
-    stopSampling(); 
-  }*/
 
 }
 
@@ -425,11 +419,6 @@ void writeWavHeader(File &file, int sampleRate, int bitDepth, int channels, int 
 }
 
 void updateDataSizeInHeader(File &file) {
-  /*File file = SD.open(sourceFile, FILE_WRITE);
-  if (!file) {
-    Serial.println("Failed to open source file for writing.");
-    return;
-  }*/
 
   int dataSize = file.size() - 44; // 44 bytes is the size of the WAV header
 
