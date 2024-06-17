@@ -13,6 +13,7 @@ from keras.layers import Input, Conv1D, MaxPooling1D, Flatten, Dense, Dropout, c
 from keras.utils import to_categorical
 from keras.callbacks import EarlyStopping
 
+
 # Define directories
 current_dir = os.getcwd()
 tijoleira_dir_audio = os.path.join(current_dir, 'Dataset_Piso', 'TIJOLEIRA', 'SAMPLES_1s', 'AUDIO')
@@ -20,11 +21,37 @@ liso_dir_audio = os.path.join(current_dir, 'Dataset_Piso', 'LISO', 'SAMPLES_1s',
 tijoleira_dir_acel = os.path.join(current_dir, 'Dataset_Piso', 'TIJOLEIRA', 'SAMPLES_1s', 'ACCEL')
 liso_dir_acel = os.path.join(current_dir, 'Dataset_Piso', 'LISO', 'SAMPLES_1s', 'ACCEL')
 
+# Helper function to sort files by the numeric part in the filename
+def sort_key(file_path):
+    file_name = os.path.basename(file_path)
+    # Extract the numeric part from the filename for sorting
+    numeric_part = ''.join(filter(str.isdigit, file_name))
+    return int(numeric_part) if numeric_part else 0
+
 # Load list of audio and accelerometer files
-tijoleira_files_audio = [os.path.join(tijoleira_dir_audio, file) for file in os.listdir(tijoleira_dir_audio) if file.endswith('.WAV')]
-liso_files_audio = [os.path.join(liso_dir_audio, file) for file in os.listdir(liso_dir_audio) if file.endswith('.WAV')]
-tijoleira_files_acel = [os.path.join(tijoleira_dir_acel, file) for file in os.listdir(tijoleira_dir_acel) if file.endswith('.csv')]
-liso_files_acel = [os.path.join(liso_dir_acel, file) for file in os.listdir(liso_dir_acel) if file.endswith('.csv')]
+tijoleira_files_audio = sorted(
+    [os.path.join(tijoleira_dir_audio, file) for file in os.listdir(tijoleira_dir_audio) if file.endswith('.WAV')],
+    key=sort_key
+)
+liso_files_audio = sorted(
+    [os.path.join(liso_dir_audio, file) for file in os.listdir(liso_dir_audio) if file.endswith('.WAV')],
+    key=sort_key
+)
+tijoleira_files_acel = sorted(
+    [os.path.join(tijoleira_dir_acel, file) for file in os.listdir(tijoleira_dir_acel) if file.endswith('.csv')],
+    key=sort_key
+)
+liso_files_acel = sorted(
+    [os.path.join(liso_dir_acel, file) for file in os.listdir(liso_dir_acel) if file.endswith('.csv')],
+    key=sort_key
+)
+
+# Print the sorted lists for verification
+'''print("Tijoleira Audio Files:", tijoleira_files_audio[150:155])
+print("Tijoleira Accelerometer Files:", tijoleira_files_acel[150:155])
+print("Liso Audio Files:", liso_files_audio[150:155])
+print("Liso Accelerometer Files:", liso_files_acel[150:155])'''
+
 
 # Define feature extraction functions
 def extract_audio_features(file_path):

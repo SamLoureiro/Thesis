@@ -179,11 +179,30 @@ tijoleira_dir_acel = os.path.join(current_dir, 'Dataset_Piso', 'TIJOLEIRA', 'SAM
 liso_dir_acel = os.path.join(current_dir, 'Dataset_Piso', 'LISO', 'SAMPLES', 'ACEL')
 
 
+# Helper function to sort files by the numeric part in the filename
+def sort_key(file_path):
+    file_name = os.path.basename(file_path)
+    # Extract the numeric part from the filename for sorting
+    numeric_part = ''.join(filter(str.isdigit, file_name))
+    return int(numeric_part) if numeric_part else 0
+
 # Load list of audio and accelerometer files
-tijoleira_files_audio = [os.path.join(tijoleira_dir_audio, file) for file in os.listdir(tijoleira_dir_audio) if file.endswith('.WAV')]
-liso_files_audio = [os.path.join(liso_dir_audio, file) for file in os.listdir(liso_dir_audio) if file.endswith('.WAV')]
-tijoleira_files_acel = [os.path.join(tijoleira_dir_acel, file) for file in os.listdir(tijoleira_dir_acel) if file.endswith('.csv')]
-liso_files_acel = [os.path.join(liso_dir_acel, file) for file in os.listdir(liso_dir_acel) if file.endswith('.csv')]
+tijoleira_files_audio = sorted(
+    [os.path.join(tijoleira_dir_audio, file) for file in os.listdir(tijoleira_dir_audio) if file.endswith('.WAV')],
+    key=sort_key
+)
+liso_files_audio = sorted(
+    [os.path.join(liso_dir_audio, file) for file in os.listdir(liso_dir_audio) if file.endswith('.WAV')],
+    key=sort_key
+)
+tijoleira_files_acel = sorted(
+    [os.path.join(tijoleira_dir_acel, file) for file in os.listdir(tijoleira_dir_acel) if file.endswith('.csv')],
+    key=sort_key
+)
+liso_files_acel = sorted(
+    [os.path.join(liso_dir_acel, file) for file in os.listdir(liso_dir_acel) if file.endswith('.csv')],
+    key=sort_key
+)
 
 X = []
 y = []
