@@ -34,9 +34,8 @@ File acelFile, errorFile, audio_data, wavFile;
 
 // Constants
 #define CONVERT_G_TO_MS2    9.80665f                  // Used to convert G to m/s^2
-#define SAMPLING_FREQ_HZ    100                       // Sampling frequency (Hz)
+#define SAMPLING_FREQ_HZ    25                        // Sampling frequency (Hz)
 #define SAMPLING_PERIOD_MS  (1000 / SAMPLING_FREQ_HZ) // Sampling period (ms)
-#define NUM_SAMPLES         100                       // 100 samples at 100 Hz is 1 sec window
 
 static bool samplingState = false;         // Keep track of sampling state
 
@@ -137,10 +136,7 @@ void startSampling() {
   samplingState = true;
   digitalWrite(BUILTIN_PIN, HIGH); // Turn on LED to indicate sampling
 
-  const char* acel_csv = "acel_data.csv";
-  if (SD.exists(acel_csv)) {
-    SD.remove(acel_csv);
-  }
+  const char* acel_csv = getUniqueFilename("acel_csv", "csv");
   acelFile = SD.open(acel_csv, FILE_WRITE);
   if (acelFile) {
     Serial.println(String(acel_csv) + " open with success");
@@ -240,8 +236,6 @@ void startSampling() {
       }
       recordSensorData(&a_r, &g_r, acelFile, start_timestamp, current_timestamp, false);
 
-      acelFile.println();
-
       if (button.released()) { // Button pressed down again
         stopRecording(); 
         stopSampling(); // Stop sampling and break out of loop            
@@ -267,9 +261,8 @@ void recordSensorData(sensors_event_t* a, sensors_event_t* g, File& file, unsign
 
   if(writetime) {
     file.print(timestamp - start_timestamp);
-  }
-  
-  file.print(",");
+    file.print(",");
+  }  
   file.print(acc_x);
   file.print(",");
   file.print(acc_y);
@@ -281,7 +274,9 @@ void recordSensorData(sensors_event_t* a, sensors_event_t* g, File& file, unsign
   file.print(gyr_y);
   file.print(",");
   file.print(gyr_z);
-  //Serial.println(acc_x);
+  if(!writetime) {
+    acelFile.println();
+  }
 }
 
 void stopSampling() {
@@ -292,17 +287,9 @@ void stopSampling() {
 }
 
 void startRecording() {  
-  if (SD.exists("RECORD.WAV")) {
-    // The SD library writes new data to the end of the
-    // file, so to start a new recording, the old file
-    // must be deleted before new data is written.
-    SD.remove("RECORD.WAV");
-  }
-  /*nt wav_n = 0;
-  while(SD.exists("RECORD" + String(wav_n) + ".WAV")) {
-    wav_n++;
-  }*/
-  audio_data = SD.open("RECORD.WAV", FILE_WRITE);
+
+  const char* wav_filename = getUniqueFilename("RECORD", "WAV");
+  audio_data = SD.open(wav_filename, FILE_WRITE);
 
   if (audio_data) {
     // Define WAV file parameters
@@ -432,4 +419,17 @@ void updateDataSizeInHeader(File &file) {
   file.write((uint8_t*)&dataSize, 4);
 
   file.close();
+}
+
+const char* getUniqueFilename(const char* baseName, const char* extension) {
+  static char uniqueName[32];
+  int counter = 0;
+
+  while (true) {
+    snprintf(uniqueName, sizeof(uniqueName), "%s_%d.%s", baseName, counter, extension);
+    if (!SD.exists(uniqueName)) {
+      return uniqueName;
+    }
+    counter++;
+  }
 }
