@@ -16,10 +16,17 @@ os.makedirs(output_directory, exist_ok=True)
 # Define the time interval in milliseconds
 time_interval = 1000  # 1 second
 
-# Minimum number of lines (rows) required in each sample
-min_lines_per_sample = 50
-
 i = 0
+
+# Function to calculate the average of the past 3 lines
+def average_of_last_three(rows):
+    if len(rows) < 3:
+        return None
+    avg_row = []
+    for col in range(len(rows[0])):
+        avg = sum(float(rows[-j][col]) for j in range(1, 4)) / 3
+        avg_row.append(f'{avg:.3f}')  # Formatting average to 3 decimal places
+    return avg_row
 
 # Read the input .csv file
 with open(input_file, 'r') as file:
@@ -37,36 +44,45 @@ with open(input_file, 'r') as file:
         # Check if the current row belongs to the current sample or a new sample
         if current_sample_start_time is None:
             current_sample_start_time = timestamp
-
-        # Add the current row to the current sample
-        current_sample.append(row)
-
-        # Check if the current sample duration is at least time_interval
-        if timestamp - current_sample_start_time >= time_interval:
-            # Check if the current sample has at least min_lines_per_sample lines
-            if len(current_sample) >= min_lines_per_sample:
-                # Save the current sample to a new file
-                output_file = os.path.join(output_directory, f'{input_name}_sample_{i}.csv')
-                with open(output_file, 'w', newline='') as output:
-                    writer = csv.writer(output)
-                    writer.writerow(header)
-                    writer.writerows(current_sample)
-                i += 1
-            else:
-                print(f"Discarding sample {input_name}_sample_{i}.csv because it does not have at least {min_lines_per_sample} lines.")
+        elif timestamp - current_sample_start_time >= time_interval:
+            # Save the current sample to a new file
+            print("Sample lenght before adjust: ", len(current_sample))
+            if len(current_sample) > 50:
+                current_sample = current_sample[:50]
+            elif len(current_sample) < 50:
+                avg_row = average_of_last_three(current_sample)
+                if avg_row:
+                    while len(current_sample) < 50:
+                        current_sample.append(avg_row)
+            print("Sample lenght after adjust: ", len(current_sample))
+            output_file = os.path.join(output_directory, f'{input_name}_sample_{i}.csv')
+            i += 1
+            with open(output_file, 'w', newline='') as output:
+                writer = csv.writer(output)
+                writer.writerow(header)
+                writer.writerows(current_sample)
 
             # Reset variables for the new sample
             current_sample = []
             current_sample_start_time = timestamp
 
-    # Check if the last sample meets the intended criteria
-    if len(current_sample) >= min_lines_per_sample:
+        # Add the current row to the current sample
+        current_sample.append(row)        
+
+    # Save the last sample to a new file if it contains any rows
+    '''if current_sample:
+        if len(current_sample) > 50:
+            current_sample = current_sample[:50]
+        elif len(current_sample) < 50:
+            avg_row = average_of_last_three(current_sample)
+            if avg_row:
+                while len(current_sample) < 50:
+                    current_sample.append(avg_row)
+
         output_file = os.path.join(output_directory, f'{input_name}_sample_{i}.csv')
         with open(output_file, 'w', newline='') as output:
             writer = csv.writer(output)
             writer.writerow(header)
-            writer.writerows(current_sample)
-    elif current_sample:
-        print(f"Discarding last sample {input_name}_sample_{i}.csv because it does not have at least {min_lines_per_sample} lines.")
+            writer.writerows(current_sample)'''
 
 print("Sample files have been created successfully.")
