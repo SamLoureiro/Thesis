@@ -118,8 +118,8 @@ def extract_accel_features(file_path):
         features.append(np.mean(data))
         features.append(np.std(data))
         features.append(np.sqrt(np.mean(data**2)))  # RMS
-        features.append(kurtosis(data))
-        features.append(skew(data))
+        features.append(kurtosis(data) if np.std(data) != 0 else 0)
+        features.append(skew(data) if np.std(data) != 0 else 0)
         
         # Spectral features
         spectrum = np.abs(fft(data))[:len(data) // 2]

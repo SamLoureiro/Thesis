@@ -4,13 +4,15 @@ import pandas as pd
 import librosa
 from scipy.stats import kurtosis, skew
 from sklearn.preprocessing import StandardScaler
+import scipy.signal
+import tensorflow_decision_forests as tfdf
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.utils import shuffle
+from sklearn.utils import shuffle, compute_class_weight
 from sklearn.model_selection import train_test_split, cross_val_score
 from sklearn.metrics import accuracy_score, precision_score, recall_score, classification_report, confusion_matrix
 import matplotlib.pyplot as plt
 import seaborn as sns
-
+#import tensorflow_decision_forests as tfdf
 
 # Define directories
 current_dir = os.getcwd()
@@ -54,6 +56,30 @@ def extract_audio_features(file_path):
         'kurtosis': kurtosis(y) if np.std(y) != 0 else 0,
         'skew': skew(y) if np.std(y) != 0 else 0
     }
+    
+    # FFT between 20kHz and 96kHz
+    fft_result = np.abs(np.fft.fft(y, n=2048))
+    freqs = np.fft.fftfreq(2048, 1/sr)
+    fft_20k_96k = fft_result[(freqs >= 20000) & (freqs <= 96000)]
+    fft_20k_96k = fft_20k_96k[:1024]  # Take the positive half of the FFT
+
+    # 96000/1024 = 93.75 Hz per bin -> 20kHz = 213.33 bins, 96kHz = 1024 bins 1024 - 214 = 811
+    
+    # Add FFT features
+    for i, value in enumerate(fft_20k_96k):
+        features[f'fft_20k_96k_{i}'] = value
+    
+    # MFCCs
+    mfccs = librosa.feature.mfcc(y=y, sr=sr, n_fft=2048, hop_length=512, 
+                                                     window=scipy.signal.get_window('hamming', 2048), htk=False, 
+                                                     center=True, pad_mode='reflect', power=2.0, 
+                                                     n_mels=120, fmax=sr/2)
+    for i in range(mfccs.shape[0]):
+        avg = np.mean(mfccs[i, :])
+        std = np.std(mfccs[i, :])
+        features[f'mfcc_avg_{i}'] = avg
+        features[f'mfcc_std_{i}'] = std
+    
     return features
 
 def extract_accel_features(file_path):
@@ -106,6 +132,7 @@ combined_features_normalized, y = shuffle(combined_features_normalized, y, rando
 # Train classifier
 X_train, X_test, y_train, y_test = train_test_split(combined_features_normalized, y, test_size=0.2, random_state=42)
 clf = RandomForestClassifier(class_weight='balanced')
+#clf = tfdf.keras.RandomForestModel(task=tfdf.keras.Task.CLASSIFICATION)
 clf.fit(X_train, y_train)
 
 # Evaluate
@@ -146,4 +173,3 @@ plt.ylabel('Actual')
 plt.xlabel('Predicted')
 plt.title('Confusion Matrix')
 plt.show()
-
