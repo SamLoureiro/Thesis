@@ -111,21 +111,22 @@ def extract_audio_features(file_path, sr=192000, fft_points=2048):
 def extract_accel_features(file_path):
     df = pd.read_csv(file_path)
     features = []
-    for column in df.columns[1:]:  # skip timestamp
-        data = df[column].values
-        
-        # Statistical features
-        features.append(np.mean(data))
-        features.append(np.std(data))
-        features.append(np.sqrt(np.mean(data**2)))  # RMS
-        features.append(kurtosis(data) if np.std(data) != 0 else 0)
-        features.append(skew(data) if np.std(data) != 0 else 0)
-        
-        # Spectral features
-        spectrum = np.abs(fft(data))[:len(data) // 2]
-        features.append(np.mean(spectrum))
-        features.append(np.std(spectrum))
-        features.append(np.sqrt(np.mean(spectrum**2)))  # RMS of spectrum
+    for prefix in ['accX', 'accY', 'accZ', 'gyrX', 'gyrY', 'gyrZ']:
+        for side in ['l', 'r']:
+            column = f'{prefix}_{side}'
+            data = df[column]        
+            # Statistical features
+            features.append(np.mean(data))
+            features.append(np.std(data))
+            features.append(np.sqrt(np.mean(data**2)))  # RMS
+            features.append(kurtosis(data) if np.std(data) != 0 else 0)
+            features.append(skew(data) if np.std(data) != 0 else 0)
+            
+            # Spectral features
+            spectrum = np.abs(fft(data))[:len(data) // 2]
+            features.append(np.mean(spectrum))
+            features.append(np.std(spectrum))
+            features.append(np.sqrt(np.mean(spectrum**2)))  # RMS of spectrum
         
     return features
 

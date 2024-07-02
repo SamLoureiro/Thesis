@@ -34,7 +34,7 @@ File acelFile, errorFile, audio_data, wavFile;
 
 // Constants
 #define CONVERT_G_TO_MS2    9.80665f                  // Used to convert G to m/s^2
-#define SAMPLING_FREQ_HZ    25                        // Sampling frequency (Hz)
+#define SAMPLING_FREQ_HZ    50                        // Sampling frequency (Hz)
 #define SAMPLING_PERIOD_MS  (1000 / SAMPLING_FREQ_HZ) // Sampling period (ms)
 
 static bool samplingState = false;         // Keep track of sampling state
@@ -142,7 +142,7 @@ void startSampling() {
     Serial.println(String(acel_csv) + " open with success");
     errorFile.print(millis());
     errorFile.println("," + String(acel_csv) + " open with success");
-    acelFile.println("timestamp,accX_l,accY_l,accZ_l,gyrX_l,gyrY_l,gyrZ_l,accX_r,accY_r,accZ_r,gyrX_r,gyrY_r,gyrZ_r");
+    acelFile.println("timestamp,accX_l,accY_l,accZ_l,gyrX_l,gyrY_l,gyrZ_l,temp_l,accX_r,accY_r,accZ_r,gyrX_r,gyrY_r,gyrZ_r,temp_r");
   } else {
     digitalWrite(ERROR_PIN, HIGH);
     Serial.println("Error opening file " + String(acel_csv));
@@ -205,7 +205,7 @@ void startSampling() {
         errorFile.println(",Accel Left Reconnected"); 
         digitalWrite(ERROR_PIN, LOW);
       }      
-      recordSensorData(&a_l, &g_l, acelFile, start_timestamp, current_timestamp, true);
+      recordSensorData(&a_l, &g_l, &temp_l, acelFile, start_timestamp, current_timestamp, true);
 
       sensors_event_t a_r, g_r, temp_r;
       mpu_r.getEvent(&a_r, &g_r, &temp_r);
@@ -234,7 +234,7 @@ void startSampling() {
         errorFile.print(millis()); 
         errorFile.println(",Accel Right Reconnected");      
       }
-      recordSensorData(&a_r, &g_r, acelFile, start_timestamp, current_timestamp, false);
+      recordSensorData(&a_r, &g_r, &temp_r, acelFile, start_timestamp, current_timestamp, false);
 
       if (button.released()) { // Button pressed down again
         stopRecording(); 
@@ -250,7 +250,7 @@ void startSampling() {
   return;
 }
 
-void recordSensorData(sensors_event_t* a, sensors_event_t* g, File& file, unsigned long start_timestamp, unsigned long timestamp, bool writetime) {
+void recordSensorData(sensors_event_t* a, sensors_event_t* g, sensors_event_t* t, File& file, unsigned long start_timestamp, unsigned long timestamp, bool writetime) {
 
   float acc_x = a->acceleration.x * CONVERT_G_TO_MS2;
   float acc_y = a->acceleration.y * CONVERT_G_TO_MS2;
@@ -258,6 +258,7 @@ void recordSensorData(sensors_event_t* a, sensors_event_t* g, File& file, unsign
   float gyr_x = g->gyro.x;
   float gyr_y = g->gyro.y;
   float gyr_z = g->gyro.z;
+  float temp = t->temperature;
 
   if(writetime) {
     file.print(timestamp - start_timestamp);
@@ -274,7 +275,13 @@ void recordSensorData(sensors_event_t* a, sensors_event_t* g, File& file, unsign
   file.print(gyr_y);
   file.print(",");
   file.print(gyr_z);
-  if(!writetime) {
+  file.print(",");
+  file.print(temp);
+  if(writetime)
+  {
+    file.print(",");
+  }  
+  else {
     acelFile.println();
   }
 }
