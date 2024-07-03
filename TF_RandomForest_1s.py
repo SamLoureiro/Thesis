@@ -3,6 +3,7 @@ import numpy as np
 import IPython
 import pandas as pd
 import librosa
+import noisereduce as nr
 from scipy.stats import kurtosis, skew
 from sklearn.preprocessing import StandardScaler
 import scipy.signal
@@ -22,6 +23,7 @@ tijoleira_dir_audio = os.path.join(current_dir, 'Dataset_Piso', 'TIJOLEIRA', 'SA
 liso_dir_audio = os.path.join(current_dir, 'Dataset_Piso', 'LISO', 'SAMPLES_1s', 'AUDIO')
 tijoleira_dir_acel = os.path.join(current_dir, 'Dataset_Piso', 'TIJOLEIRA', 'SAMPLES_1s', 'ACCEL')
 liso_dir_acel = os.path.join(current_dir, 'Dataset_Piso', 'LISO', 'SAMPLES_1s', 'ACCEL')
+noise_profile_file = os.path.join(current_dir, 'Dataset_Piso', 'Noise.WAV')
 
 # Helper function to sort files by the numeric part in the filename
 def sort_key(file_path):
@@ -48,8 +50,12 @@ liso_files_acel = sorted(
 )
 
 # Define feature extraction functions
-def extract_audio_features(file_path):
+def extract_audio_features(file_path, noise_profile):
+    # Load audio file
     y, sr = librosa.load(file_path, sr=192000)
+    # Apply noise reduction
+    y = nr.reduce_noise(y=y, sr=sr, y_noise=noise_profile, n_fft=2048, hop_length=512)
+
     features = {
         'mean': np.mean(y),
         'std': np.std(y),
@@ -101,14 +107,14 @@ labels = []
 
 # Process dataset files with unbalanced data
 for audio_file, accel_file in zip(tijoleira_files_audio, tijoleira_files_acel):
-    audio_features = extract_audio_features(audio_file)
+    audio_features = extract_audio_features(audio_file, noise_profile_file)
     accel_features = extract_accel_features(accel_file)
     combined = {**audio_features, **accel_features}
     combined_features.append(combined)
     labels.append(1)  # 1 for TIJOLEIRA
 
 for audio_file, accel_file in zip(liso_files_audio, liso_files_acel):
-    audio_features = extract_audio_features(audio_file)
+    audio_features = extract_audio_features(audio_file, noise_profile_file)
     accel_features = extract_accel_features(accel_file)
     combined = {**audio_features, **accel_features}
     combined_features.append(combined)
