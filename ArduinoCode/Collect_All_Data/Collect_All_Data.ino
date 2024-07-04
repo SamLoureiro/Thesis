@@ -38,6 +38,7 @@ File acelFile, errorFile, audio_data, wavFile;
 #define CONVERT_G_TO_MS2    9.80665f                  // Used to convert G to m/s^2
 #define SAMPLING_FREQ_HZ    50                        // Sampling frequency (Hz)
 #define SAMPLING_PERIOD_MS  (1000 / SAMPLING_FREQ_HZ) // Sampling period (ms)
+#define BUFFER_SIZE 100 // Number of lines to accumulate before writing to SD
 
 static bool samplingState = false;         // Keep track of sampling state
 
@@ -50,6 +51,10 @@ const char* wav = "record.wav";
 const int myInput = AUDIO_INPUT_MIC;
 
 const float referenceVoltage = 3.3;
+
+String csvBuffer = "";
+
+int bufferCount = 0;
 
 int mode = 0;
 
@@ -70,12 +75,12 @@ void setup() {
   setI2SFreq(192000);
 
   // Initialize SD card
-  if (!SD.begin(chipSelect)) {
+  while (!SD.begin(chipSelect)) {
     digitalWrite(ERROR_PIN, HIGH);
     Serial.println("Initialization Failed!");
-    return;
+    delay(100);
   }
-
+  digitalWrite(ERROR_PIN, LOW);
   errorFile = SD.open(error_txt, FILE_WRITE);
   if (errorFile) {
     Serial.println(String(error_txt) + " open with success");
@@ -89,7 +94,7 @@ void setup() {
   }
   digitalWrite(ERROR_PIN, LOW);
   errorFile.print("Time Stamp");
-  errorFile.println("Error Log");
+  errorFile.println(",Error Log");
   // Initialize MPU6050 sensors
   Wire.setSCL(19);  // SCL on first i2c bus on T4.1
   Wire.setSDA(18);  // SDA on first i2c bus on T4.1
@@ -99,13 +104,13 @@ void setup() {
   while(!mpu_l.begin(0x68, &Wire, 0) || !mpu_r.begin(0x68, &Wire1, 0)) {
     digitalWrite(ERROR_PIN, HIGH);
     errorFile.print(millis());
-    errorFile.println("Failed to find MPU6050 chips");  
+    errorFile.println(",Failed to find MPU6050 chips");  
     Serial.println("Failed to find MPU6050 chips");    
     delay(1000);    
   }
   digitalWrite(ERROR_PIN, LOW);
   errorFile.print(millis());
-  errorFile.println("MPU6050 chips connected successfully"); 
+  errorFile.println(",MPU6050 chips connected successfully"); 
   Serial.println("MPU6050 chips connected successfully");
   // Setup motion detection for both sensors
   setupMotionDetection(&mpu_l);
@@ -119,12 +124,12 @@ void loop() {
   if (button.fell()) { // Button pressed down
     if (!samplingState) { // Start sampling
       startSampling();
-    } else { // Stop sampling
+    } /*else { // Stop sampling
       stopSampling();
-    }
+    }*/
   }
 
-  delay(100);
+  delay(10);
 }
 
 void setupMotionDetection(Adafruit_MPU6050* mpu) {
@@ -171,7 +176,7 @@ void startSampling() {
       digitalWrite(BUILTIN_PIN, LOW);
       Serial.println("Memoria a 80\%");
       errorFile.print(millis());
-      errorFile.println("Memoria a 80\%");
+      errorFile.println(",Memoria a 80\%");
       digitalWrite(ERROR_PIN, HIGH);
       stopRecording();
       stopSampling();
@@ -262,42 +267,50 @@ void recordSensorData(sensors_event_t* a, sensors_event_t* g, sensors_event_t* t
   float gyr_x = g->gyro.x;
   float gyr_y = g->gyro.y;
   float gyr_z = g->gyro.z;
-  float temp = t->temperature;  
+  float temp = t->temperature;
 
-  if(writetime) {
-    file.print(timestamp - start_timestamp);
-    file.print(",");
-  }  
-  file.print(acc_x);
-  file.print(",");
-  file.print(acc_y);
-  file.print(",");
-  file.print(acc_z);
-  file.print(",");
-  file.print(gyr_x);
-  file.print(",");
-  file.print(gyr_y);
-  file.print(",");
-  file.print(gyr_z);
-  file.print(",");
-  file.print(temp);
-  if(writetime)
-  {
-    file.print(",");
-  }  
-  else {
+  String csv_line = "";
+
+  if (writetime) {
+    csv_line += String(timestamp - start_timestamp);
+    csv_line += ",";
+  }
+
+  csv_line += String(acc_x) + ",";
+  csv_line += String(acc_y) + ",";
+  csv_line += String(acc_z) + ",";
+  csv_line += String(gyr_x) + ",";
+  csv_line += String(gyr_y) + ",";
+  csv_line += String(gyr_z) + ",";
+  csv_line += String(temp);
+
+  if (writetime) {
+    csv_line += ",";
+  } else {
     float temp_center = Read_Temperature_Sensor(TEMP_PIN, referenceVoltage);
-    file.print(",");
-    file.print(temp_center);
-    acelFile.println();
+    csv_line += "," + String(temp_center) + "\n";
+  }
+
+  // Add the line to the buffer
+  csvBuffer += csv_line;
+  bufferCount++;
+
+  // Write to SD card if buffer is full
+  if (bufferCount >= BUFFER_SIZE) {
+    file.print(csvBuffer);
+    csvBuffer = "";
+    bufferCount = 0;
   }
 }
 
+
 void stopSampling() {
-  samplingState = false;
-  digitalWrite(BUILTIN_PIN, LOW); // Turn off LED to indicate sampling stopped
+  samplingState = false;  
+  // Flush the remaining buffer content to the SD card
+  flushBuffer(acelFile);
   acelFile.close();
   errorFile.close();
+  digitalWrite(BUILTIN_PIN, LOW); // Turn off LED to indicate sampling stopped
 }
 
 void startRecording() {  
@@ -459,4 +472,12 @@ float Read_Temperature_Sensor(const int pin, const float refvoltage) {
   float temperatureC = 100 * voltage - 50;
 
   return temperatureC; 
+}
+
+void flushBuffer(File& file) {
+  if (bufferCount > 0) {
+    file.print(csvBuffer);
+    csvBuffer = "";
+    bufferCount = 0;
+  }
 }
