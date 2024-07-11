@@ -19,10 +19,10 @@ from sklearn.model_selection import GridSearchCV
 
 # Define directories
 current_dir = os.getcwd()
-tijoleira_dir_audio = os.path.join(current_dir, 'Dataset_Piso', 'TIJOLEIRA', 'SAMPLES_1s', 'AUDIO')
-liso_dir_audio = os.path.join(current_dir, 'Dataset_Piso', 'LISO', 'SAMPLES_1s', 'AUDIO')
-tijoleira_dir_acel = os.path.join(current_dir, 'Dataset_Piso', 'TIJOLEIRA', 'SAMPLES_1s', 'ACCEL')
-liso_dir_acel = os.path.join(current_dir, 'Dataset_Piso', 'LISO', 'SAMPLES_1s', 'ACCEL')
+good_bearing_dir_audio = os.path.join(current_dir, 'Dataset_Bearings', 'AMR_MOVEMENT', 'DAMAGED', 'AUDIO')
+damaged_bearing_dir_audio = os.path.join(current_dir, 'Dataset_Bearings', 'AMR_MOVEMENT', 'GOOD', 'AUDIO')
+good_bearing_dir_acel = os.path.join(current_dir, 'Dataset_Bearings', 'AMR_MOVEMENT', 'DAMAGED', 'ACEL')
+damaged_bearing_dir_acel = os.path.join(current_dir, 'Dataset_Bearings', 'AMR_MOVEMENT', 'GOOD', 'ACEL')
 noise_profile_file = os.path.join(current_dir, 'Dataset_Piso', 'Noise.WAV')
 
 # Helper function to sort files by the numeric part in the filename
@@ -32,22 +32,27 @@ def sort_key(file_path):
     return int(numeric_part) if numeric_part else 0
 
 # Load list of audio and accelerometer files
-tijoleira_files_audio = sorted(
-    [os.path.join(tijoleira_dir_audio, file) for file in os.listdir(tijoleira_dir_audio) if file.endswith('.WAV')],
+good_bearing_files_audio = sorted(
+    [os.path.join(good_bearing_dir_audio, file) for file in os.listdir(good_bearing_dir_audio) if file.endswith('.WAV')],
     key=sort_key
 )
-liso_files_audio = sorted(
-    [os.path.join(liso_dir_audio, file) for file in os.listdir(liso_dir_audio) if file.endswith('.WAV')],
+damaged_bearing_files_audio = sorted(
+    [os.path.join(damaged_bearing_dir_audio, file) for file in os.listdir(damaged_bearing_dir_audio) if file.endswith('.WAV')],
     key=sort_key
 )
-tijoleira_files_acel = sorted(
-    [os.path.join(tijoleira_dir_acel, file) for file in os.listdir(tijoleira_dir_acel) if file.endswith('.csv')],
+good_bearing_files_acel = sorted(
+    [os.path.join(good_bearing_dir_acel, file) for file in os.listdir(good_bearing_dir_acel) if file.endswith('.csv')],
     key=sort_key
 )
-liso_files_acel = sorted(
-    [os.path.join(liso_dir_acel, file) for file in os.listdir(liso_dir_acel) if file.endswith('.csv')],
+damaged_bearing_files_acel = sorted(
+    [os.path.join(damaged_bearing_dir_acel, file) for file in os.listdir(damaged_bearing_dir_acel) if file.endswith('.csv')],
     key=sort_key
 )
+
+print(f"Found {len(good_bearing_files_audio)} good_bearing audio files")
+print(f"Found {len(damaged_bearing_files_audio)} damaged_bearing audio files")
+print(f"Found {len(good_bearing_files_acel)} good_bearing accelerometer files")
+print(f"Found {len(damaged_bearing_files_acel)} damaged_bearing accelerometer files")
 
 # Define feature extraction functions
 def extract_audio_features(file_path, noise_profile):
@@ -105,48 +110,48 @@ def extract_accel_features(file_path):
 combined_features = []
 labels = []
 
-# Process dataset files with unbalanced data
-for audio_file, accel_file in zip(tijoleira_files_audio, tijoleira_files_acel):
+'''# Process dataset files with unbalanced data
+for audio_file, accel_file in zip(good_bearing_files_audio, good_bearing_files_acel):
     audio_features = extract_audio_features(audio_file, noise_profile_file)
     accel_features = extract_accel_features(accel_file)
     combined = {**audio_features, **accel_features}
     combined_features.append(combined)
-    labels.append(1)  # 1 for TIJOLEIRA
+    labels.append(1)  # 1 for good_bearing
 
-for audio_file, accel_file in zip(liso_files_audio, liso_files_acel):
+for audio_file, accel_file in zip(damaged_bearing_files_audio, damaged_bearing_files_acel):
     audio_features = extract_audio_features(audio_file, noise_profile_file)
     accel_features = extract_accel_features(accel_file)
     combined = {**audio_features, **accel_features}
     combined_features.append(combined)
-    labels.append(0)  # 0 for LISO
-
+    labels.append(0)  # 0 for damaged_bearing
+'''
 # Process dataset with balance data
-'''
+
 count = 0
-max_count = min(len(tijoleira_files_audio), len(liso_files_audio))
-# Process TIJOLEIRA files
-for audio_file, accel_file in zip(tijoleira_files_audio, tijoleira_files_acel):
-    audio_features = extract_audio_features(audio_file)
+max_count = min(len(good_bearing_files_audio), len(damaged_bearing_files_audio))
+# Process good_bearing files
+for audio_file, accel_file in zip(good_bearing_files_audio, good_bearing_files_acel):
+    audio_features = extract_audio_features(audio_file, noise_profile_file)
     accel_features = extract_accel_features(accel_file)
     combined = {**audio_features, **accel_features}
     combined_features.append(combined)
-    labels.append(1)  # 1 for TIJOLEIRA
+    labels.append(1)  # 1 for good_bearing
     count+=1
     if(count == max_count):
         break
 
 count = 0
-# Process LISO files
-for audio_file, accel_file in zip(liso_files_audio, liso_files_acel):
-    audio_features = extract_audio_features(audio_file)
+# Process damaged_bearing files
+for audio_file, accel_file in zip(damaged_bearing_files_audio, damaged_bearing_files_acel):
+    audio_features = extract_audio_features(audio_file, noise_profile_file)
     accel_features = extract_accel_features(accel_file)
     combined = {**audio_features, **accel_features}
     combined_features.append(combined)
-    labels.append(0)  # 0 for LISO
+    labels.append(0)  # 0 for damaged_bearing
     count+=1
     if(count == max_count):
         break
-'''
+
 
 # Create DataFrame
 combined_features_df = pd.DataFrame(combined_features)
@@ -169,6 +174,12 @@ clf.fit(X_train, y_train)
 
 clf.compile(loss='binary_crossentropy', metrics=["accuracy"])
 
+clf.summary()
+
+# Save the model
+model_save_path = os.path.join(current_dir, "saved_model")
+clf.save(model_save_path)
+
 # Evaluate the model
 evaluation = clf.evaluate(X_test, y_test, return_dict=True)
 
@@ -182,14 +193,15 @@ print('Test accuracy:', evaluation)
 tfdf.model_plotter.plot_model_in_colab(clf, tree_idx=0, max_depth=3)
 
 # The input features
-clf.make_inspector().features()
+#features = clf.make_inspector().features()
+#print("Features used in the model:", features)
 
 # The feature importances
-clf.make_inspector().variable_importances()
+#feature_importances = clf.make_inspector().variable_importances()
+#print("Feature importances:", feature_importances)
 
 # The training logs
 clf.make_inspector().training_logs()
-
 
 logs = clf.make_inspector().training_logs()
 
@@ -207,7 +219,6 @@ plt.ylabel("Logloss (out-of-bag)")
 
 plt.show()
 
-
 # Predict on the test set
 y_pred_probs = clf.predict(X_test)
 
@@ -219,7 +230,7 @@ accuracy = accuracy_score(y_test, y_pred)
 precision = precision_score(y_test, y_pred)
 recall = recall_score(y_test, y_pred)
 f1 = f1_score(y_test, y_pred)
-report = classification_report(y_test, y_pred, target_names=['LISO', 'TIJOLEIRA'])
+report = classification_report(y_test, y_pred, target_names=['DAMAGED_BEARING', 'GOOD_BEARING'])
 
 print(f"Accuracy: {accuracy:.4f}")
 print(f"Precision: {precision:.4f}")
@@ -233,9 +244,8 @@ conf_matrix = confusion_matrix(y_test, y_pred)
 
 # Plot confusion matrix
 plt.figure(figsize=(8, 6))
-sns.heatmap(conf_matrix, annot=True, fmt="d", cmap="Blues", xticklabels=['LISO', 'TIJOLEIRA'], yticklabels=['LISO', 'TIJOLEIRA'])
+sns.heatmap(conf_matrix, annot=True, fmt="d", cmap="Blues", xticklabels=['DAMAGED_BEARING', 'GOOD_BEARING'], yticklabels=['DAMAGED_BEARING', 'GOOD_BEARING'])
 plt.ylabel('Actual')
 plt.xlabel('Predicted')
 plt.title('Confusion Matrix')
 plt.show()
-

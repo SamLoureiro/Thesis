@@ -5,21 +5,34 @@ import librosa
 from scipy.stats import kurtosis, skew
 from sklearn.preprocessing import StandardScaler
 import scipy.signal
-import tensorflow_decision_forests as tfdf
+#import tensorflow_decision_forests as tfdf
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.utils import shuffle, compute_class_weight
 from sklearn.model_selection import train_test_split, cross_val_score
 from sklearn.metrics import accuracy_score, precision_score, recall_score, classification_report, confusion_matrix
 import matplotlib.pyplot as plt
 import seaborn as sns
-#import tensorflow_decision_forests as tfdf
+import noisereduce as nr
 
 # Define directories
 current_dir = os.getcwd()
-tijoleira_dir_audio = os.path.join(current_dir, 'Dataset_Piso', 'TIJOLEIRA', 'SAMPLES_1s', 'AUDIO')
-liso_dir_audio = os.path.join(current_dir, 'Dataset_Piso', 'LISO', 'SAMPLES_1s', 'AUDIO')
-tijoleira_dir_acel = os.path.join(current_dir, 'Dataset_Piso', 'TIJOLEIRA', 'SAMPLES_1s', 'ACCEL')
-liso_dir_acel = os.path.join(current_dir, 'Dataset_Piso', 'LISO', 'SAMPLES_1s', 'ACCEL')
+'''good_bearing_dir_audio = os.path.join(current_dir, 'Dataset_Bearings', 'AMR_MOVEMENT', 'DAMAGED', 'AUDIO')
+damaged_bearing_dir_audio = os.path.join(current_dir, 'Dataset_Bearings', 'AMR_MOVEMENT', 'GOOD', 'AUDIO')
+good_bearing_dir_acel = os.path.join(current_dir, 'Dataset_Bearings', 'AMR_MOVEMENT', 'DAMAGED', 'ACEL')
+damaged_bearing_dir_acel = os.path.join(current_dir, 'Dataset_Bearings', 'AMR_MOVEMENT', 'GOOD', 'ACEL')'''
+
+good_bearing_dir_audio_m = os.path.join(current_dir, 'Dataset_Bearings', 'AMR_MOVEMENT', 'DAMAGED', 'AUDIO')
+damaged_bearing_dir_audio_m = os.path.join(current_dir, 'Dataset_Bearings', 'AMR_MOVEMENT', 'GOOD', 'AUDIO')
+good_bearing_dir_acel_m = os.path.join(current_dir, 'Dataset_Bearings', 'AMR_MOVEMENT', 'DAMAGED', 'ACEL')
+damaged_bearing_dir_acel_m = os.path.join(current_dir, 'Dataset_Bearings', 'AMR_MOVEMENT', 'GOOD', 'ACEL')
+
+good_bearing_dir_audio_s = os.path.join(current_dir, 'Dataset_Bearings', 'AMR_STOPPED', 'DAMAGED', 'AUDIO')
+damaged_bearing_dir_audio_s = os.path.join(current_dir, 'Dataset_Bearings', 'AMR_STOPPED', 'GOOD', 'AUDIO')
+good_bearing_dir_acel_s = os.path.join(current_dir, 'Dataset_Bearings', 'AMR_STOPPED', 'DAMAGED', 'ACEL')
+damaged_bearing_dir_acel_s = os.path.join(current_dir, 'Dataset_Bearings', 'AMR_STOPPED', 'GOOD', 'ACEL')
+
+# Define noise profile file
+noise_profile_file = os.path.join(current_dir, 'Dataset_Piso', 'Noise.WAV')
 
 # Helper function to sort files by the numeric part in the filename
 def sort_key(file_path):
@@ -28,33 +41,72 @@ def sort_key(file_path):
     numeric_part = ''.join(filter(str.isdigit, file_name))
     return int(numeric_part) if numeric_part else 0
 
-# Load list of audio and accelerometer files
-tijoleira_files_audio = sorted(
-    [os.path.join(tijoleira_dir_audio, file) for file in os.listdir(tijoleira_dir_audio) if file.endswith('.WAV')],
+# Load list of audio and accelerometer files for AMR_MOVEMENT
+good_bearing_files_audio_m = sorted(
+    [os.path.join(good_bearing_dir_audio_m, file) for file in os.listdir(good_bearing_dir_audio_m) if file.endswith('.WAV')],
     key=sort_key
 )
-liso_files_audio = sorted(
-    [os.path.join(liso_dir_audio, file) for file in os.listdir(liso_dir_audio) if file.endswith('.WAV')],
+damaged_bearing_files_audio_m = sorted(
+    [os.path.join(damaged_bearing_dir_audio_m, file) for file in os.listdir(damaged_bearing_dir_audio_m) if file.endswith('.WAV')],
     key=sort_key
 )
-tijoleira_files_acel = sorted(
-    [os.path.join(tijoleira_dir_acel, file) for file in os.listdir(tijoleira_dir_acel) if file.endswith('.csv')],
+good_bearing_files_acel_m = sorted(
+    [os.path.join(good_bearing_dir_acel_m, file) for file in os.listdir(good_bearing_dir_acel_m) if file.endswith('.csv')],
     key=sort_key
 )
-liso_files_acel = sorted(
-    [os.path.join(liso_dir_acel, file) for file in os.listdir(liso_dir_acel) if file.endswith('.csv')],
+damaged_bearing_files_acel_m = sorted(
+    [os.path.join(damaged_bearing_dir_acel_m, file) for file in os.listdir(damaged_bearing_dir_acel_m) if file.endswith('.csv')],
     key=sort_key
 )
 
+# Load list of audio and accelerometer files for AMR_STOPPED
+good_bearing_files_audio_s = sorted(
+    [os.path.join(good_bearing_dir_audio_s, file) for file in os.listdir(good_bearing_dir_audio_s) if file.endswith('.WAV')],
+    key=sort_key
+)
+damaged_bearing_files_audio_s = sorted(
+    [os.path.join(damaged_bearing_dir_audio_s, file) for file in os.listdir(damaged_bearing_dir_audio_s) if file.endswith('.WAV')],
+    key=sort_key
+)
+good_bearing_files_acel_s = sorted(
+    [os.path.join(good_bearing_dir_acel_s, file) for file in os.listdir(good_bearing_dir_acel_s) if file.endswith('.csv')],
+    key=sort_key
+)
+damaged_bearing_files_acel_s = sorted(
+    [os.path.join(damaged_bearing_dir_acel_s, file) for file in os.listdir(damaged_bearing_dir_acel_s) if file.endswith('.csv')],
+    key=sort_key
+)
+
+# Combine audio files
+good_bearing_files_audio = good_bearing_files_audio_m + good_bearing_files_audio_s
+damaged_bearing_files_audio = damaged_bearing_files_audio_m + damaged_bearing_files_audio_s
+
+# Combine accelerometer files
+good_bearing_files_acel = good_bearing_files_acel_m + good_bearing_files_acel_s
+damaged_bearing_files_acel = damaged_bearing_files_acel_m + damaged_bearing_files_acel_s
+
+good_bearing_files_audio = sorted(good_bearing_files_audio, key=sort_key)
+damaged_bearing_files_audio = sorted(damaged_bearing_files_audio, key=sort_key)
+good_bearing_files_acel = sorted(good_bearing_files_acel, key=sort_key)
+damaged_bearing_files_acel = sorted(damaged_bearing_files_acel, key=sort_key)
+
+
 # Define feature extraction functions
-def extract_audio_features(file_path):
+def extract_audio_features(file_path, noise_profile):
+    # Load audio file
     y, sr = librosa.load(file_path, sr=192000)
+    # Apply noise reduction
+    #y = nr.reduce_noise(y=y, sr=sr, y_noise=noise_profile, prop_decrease = 0.2, n_fft=2048, hop_length=512)
+
+    epsilon = 1e-10
+
+    # Extract features
     features = {
         'mean': np.mean(y),
         'std': np.std(y),
         'rms': np.sqrt(np.mean(y**2)),
-        'kurtosis': kurtosis(y) if np.std(y) != 0 else 0,
-        'skew': skew(y) if np.std(y) != 0 else 0
+        'kurtosis': kurtosis(y) if np.std(y) > epsilon else 0,
+        'skew': skew(y) if np.std(y) > epsilon else 0
     }
     
     # FFT between 20kHz and 96kHz
@@ -83,38 +135,40 @@ def extract_audio_features(file_path):
     return features
 
 def extract_accel_features(file_path):
+    epsilon = 1e-10
     df = pd.read_csv(file_path)
     features = {}
     for prefix in ['accX', 'accY', 'accZ', 'gyrX', 'gyrY', 'gyrZ']:
         for side in ['l', 'r']:
             column = f'{prefix}_{side}'
             data = df[column]
+            std_dev = np.std(data)
             features[f'{column}_mean'] = np.mean(data)
-            features[f'{column}_std'] = np.std(data)
+            features[f'{column}_std'] = std_dev
             features[f'{column}_rms'] = np.sqrt(np.mean(data**2))
-            features[f'{column}_kurtosis'] = kurtosis(data) if np.std(data) != 0 else 0
-            features[f'{column}_skew'] = skew(data) if np.std(data) != 0 else 0
+            features[f'{column}_kurtosis'] = kurtosis(data) if std_dev > epsilon else 0
+            features[f'{column}_skew'] = skew(data) if std_dev > epsilon else 0
     return features
 
 # Extract features for each file and combine them
 combined_features = []
 labels = []
 
-# Process TIJOLEIRA files
-for audio_file, accel_file in zip(tijoleira_files_audio, tijoleira_files_acel):
-    audio_features = extract_audio_features(audio_file)
+# Process good_bearing files
+for audio_file, accel_file in zip(good_bearing_files_audio, good_bearing_files_acel):
+    audio_features = extract_audio_features(audio_file, noise_profile_file)
     accel_features = extract_accel_features(accel_file)
     combined = {**audio_features, **accel_features}
     combined_features.append(combined)
-    labels.append(1)  # 1 for TIJOLEIRA
+    labels.append(1)  # 1 for good_bearing
 
-# Process LISO files
-for audio_file, accel_file in zip(liso_files_audio, liso_files_acel):
-    audio_features = extract_audio_features(audio_file)
+# Process damaged_bearing files
+for audio_file, accel_file in zip(damaged_bearing_files_audio, damaged_bearing_files_acel):
+    audio_features = extract_audio_features(audio_file, noise_profile_file)
     accel_features = extract_accel_features(accel_file)
     combined = {**audio_features, **accel_features}
     combined_features.append(combined)
-    labels.append(0)  # 0 for LISO
+    labels.append(0)  # 0 for damaged_bearing
 
 # Create DataFrame
 combined_features_df = pd.DataFrame(combined_features)
@@ -155,7 +209,7 @@ y_pred = clf.predict(X_test)
 accuracy = accuracy_score(y_test, y_pred)
 precision = precision_score(y_test, y_pred)
 recall = recall_score(y_test, y_pred)
-report = classification_report(y_test, y_pred, target_names=['LISO', 'TIJOLEIRA'])
+report = classification_report(y_test, y_pred, target_names=['DAMAGED', 'GOOD'])
 
 print(f"Accuracy: {accuracy:.4f}")
 print(f"Precision: {precision:.4f}")
@@ -168,7 +222,7 @@ conf_matrix = confusion_matrix(y_test, y_pred)
 
 # Plot confusion matrix
 plt.figure(figsize=(8, 6))
-sns.heatmap(conf_matrix, annot=True, fmt="d", cmap="Blues", xticklabels=['LISO', 'TIJOLEIRA'], yticklabels=['LISO', 'TIJOLEIRA'])
+sns.heatmap(conf_matrix, annot=True, fmt="d", cmap="Blues", xticklabels=['DAMAGED', 'GOOD'], yticklabels=['DAMAGED', 'GOOD'])
 plt.ylabel('Actual')
 plt.xlabel('Predicted')
 plt.title('Confusion Matrix')
