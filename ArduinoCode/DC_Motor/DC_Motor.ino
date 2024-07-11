@@ -1,10 +1,17 @@
 // Define pin assignments
 int STBY = 10; // Standby
+int buttonPin = 2; // Button input
 
 // Motor A
 int PWMA = 3; // Speed control
 int AIN1 = 9; // Direction
 int AIN2 = 8; // Direction
+
+// Variables to manage the motor cycle
+bool motorRunning = false;
+unsigned long lastChangeTime = 0;
+int cycleState = 0;
+unsigned long cycleInterval = 30000; // 30 seconds for each cycle step
 
 void setup() {
   // Initialize the motor control pins as outputs
@@ -12,6 +19,7 @@ void setup() {
   pinMode(PWMA, OUTPUT);
   pinMode(AIN1, OUTPUT);
   pinMode(AIN2, OUTPUT);
+  pinMode(buttonPin, INPUT); // Button input with internal pull-up resistor
   
   // Initialize Serial communication for debugging
   Serial.begin(9600);
@@ -19,30 +27,42 @@ void setup() {
   // Disable standby mode
   digitalWrite(STBY, HIGH);
   Serial.println("Motor driver initialized, standby mode disabled.");
-  Serial.println("Enter a speed value between -100 and 100 to control the motor.");
-  Serial.println("Enter 's' to stop the motor.");
+  Serial.println("Press the button to start/stop the motor cycle.");
 }
 
 void loop() {
-  if (Serial.available() > 0) {
-    String input = Serial.readStringUntil('\n');
-    input.trim(); // Remove any leading/trailing whitespace
-
-    if (input.equalsIgnoreCase("s")) {
-      // Stop the motor
-      Serial.println("Stopping motor.");
-      stopMotor();
-    } else {
-      int speed = input.toInt(); // Convert input to integer
-
-      // Ensure the input is within the valid range
-      if (speed >= -100 && speed <= 100) {
-        Serial.print("Setting motor speed to: ");
-        Serial.println(speed);
-        setMotorSpeed(speed);
+  // Check if the button is pressed
+  if (digitalRead(buttonPin) == HIGH) {
+    delay(50); // Debounce delay
+    if (digitalRead(buttonPin) == HIGH) { // Check again to confirm button press
+      while (digitalRead(buttonPin) == HIGH); // Wait for button release
+      
+      if (!motorRunning) {
+        motorRunning = true;
+        lastChangeTime = millis();
+        cycleState = 0;
+        updateMotorCycle(cycleState);
+        Serial.println("Button pressed, starting motor cycle.");
       } else {
-        Serial.println("Invalid speed value. Please enter a value between -100 and 100.");
+        motorRunning = false;
+        stopMotor();
+        Serial.println("Button pressed, stopping motor cycle.");
       }
+    }
+  }
+
+  // If the motor is running, handle the cycle
+  if (motorRunning) {
+    unsigned long currentTime = millis();
+    if (currentTime - lastChangeTime >= cycleInterval) {
+      lastChangeTime = currentTime;
+      /*cycleState++;
+      if (cycleState > 3) {
+        cycleState = 0;
+      }*/
+      randomSeed(analogRead(0)); 
+      int randomNumber = random(0, 3);
+      updateMotorCycle(cycleState);
     }
   }
 }
@@ -85,4 +105,26 @@ void brakeMotor() {
   digitalWrite(AIN2, HIGH);
   analogWrite(PWMA, 0);
   Serial.println("Motor braked.");
+}
+
+// Function to update the motor state based on the cycle state
+void updateMotorCycle(int state) {
+  switch (state) {
+    case 0:
+      Serial.println("Cycle state 0: Motor stopped.");
+      setMotorSpeed(-80);
+      break;
+    case 1:
+      Serial.println("Cycle state 1: Motor running forward at 50% speed.");
+      setMotorSpeed(50);
+      break;
+    case 2:
+      Serial.println("Cycle state 2: Motor running backward at 50% speed.");
+      setMotorSpeed(-50);
+      break;
+    case 3:
+      Serial.println("Cycle state 3: Motor running forward at 100% speed.");
+      setMotorSpeed(80);
+      break;
+  }
 }
