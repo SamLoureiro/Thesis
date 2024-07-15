@@ -9,6 +9,9 @@ int AIN2 = 8; // Direction
 
 // Variables to manage the motor state
 bool motorRunning = false;
+bool lastButtonState = LOW; // Last state of the button
+unsigned long lastDebounceTime = 0; // The last time the button state changed
+unsigned long debounceDelay = 50; // The debounce time; increase if the output flickers
 
 void setup() {
   // Initialize the motor control pins as outputs
@@ -16,7 +19,7 @@ void setup() {
   pinMode(PWMA, OUTPUT);
   pinMode(AIN1, OUTPUT);
   pinMode(AIN2, OUTPUT);
-  pinMode(buttonPin, INPUT); // Button input
+  pinMode(buttonPin, INPUT); // Button input with internal 
   
   // Initialize Serial communication for debugging
   Serial.begin(9600);
@@ -28,16 +31,21 @@ void setup() {
 }
 
 void loop() {
-  // Check if the button is pressed
-  if (digitalRead(buttonPin) == HIGH) {
-    delay(50); // Debounce delay
-    if (digitalRead(buttonPin) == HIGH) { // Check again to confirm button press
-      while (digitalRead(buttonPin) == HIGH); // Wait for button release
+  // Read the state of the button
+  bool buttonState = digitalRead(buttonPin);
+  //Serial.println(buttonState);
+  // Check for button press with debounce
+  if (buttonState != lastButtonState) {
+    lastDebounceTime = millis();
+  }
 
+  if ((millis() - lastDebounceTime) > debounceDelay) {
+    if (buttonState == HIGH && lastButtonState == LOW) {
+      Serial.println(buttonState);
       // Toggle motor state
       motorRunning = !motorRunning;
       if (motorRunning) {
-        setMotorSpeed(75); // Set speed to 50% of maximum speed
+        setMotorSpeed(75); // Set speed to 75% of maximum speed
         Serial.println("Button pressed, starting motor.");
       } else {
         stopMotor();
@@ -45,6 +53,8 @@ void loop() {
       }
     }
   }
+
+  lastButtonState = buttonState;
 }
 
 // Function to set the motor speed and direction
