@@ -16,10 +16,19 @@ from keras.callbacks import EarlyStopping
 
 # Define directories
 current_dir = os.getcwd()
-tijoleira_dir_audio = os.path.join(current_dir, 'Dataset_Piso', 'TIJOLEIRA', 'SAMPLES_1s', 'AUDIO')
-liso_dir_audio = os.path.join(current_dir, 'Dataset_Piso', 'LISO', 'SAMPLES_1s', 'AUDIO')
-tijoleira_dir_acel = os.path.join(current_dir, 'Dataset_Piso', 'TIJOLEIRA', 'SAMPLES_1s', 'ACCEL')
-liso_dir_acel = os.path.join(current_dir, 'Dataset_Piso', 'LISO', 'SAMPLES_1s', 'ACCEL')
+
+good_bearing_dir_audio_m = os.path.join(current_dir, 'Dataset_Bearings', 'AMR_MOVEMENT', 'DAMAGED', 'AUDIO')
+damaged_bearing_dir_audio_m = os.path.join(current_dir, 'Dataset_Bearings', 'AMR_MOVEMENT', 'GOOD', 'AUDIO')
+good_bearing_dir_acel_m = os.path.join(current_dir, 'Dataset_Bearings', 'AMR_MOVEMENT', 'DAMAGED', 'ACEL')
+damaged_bearing_dir_acel_m = os.path.join(current_dir, 'Dataset_Bearings', 'AMR_MOVEMENT', 'GOOD', 'ACEL')
+
+good_bearing_dir_audio_s = os.path.join(current_dir, 'Dataset_Bearings', 'AMR_STOPPED', 'DAMAGED', 'AUDIO')
+damaged_bearing_dir_audio_s = os.path.join(current_dir, 'Dataset_Bearings', 'AMR_STOPPED', 'GOOD', 'AUDIO')
+good_bearing_dir_acel_s = os.path.join(current_dir, 'Dataset_Bearings', 'AMR_STOPPED', 'DAMAGED', 'ACEL')
+damaged_bearing_dir_acel_s = os.path.join(current_dir, 'Dataset_Bearings', 'AMR_STOPPED', 'GOOD', 'ACEL')
+
+# Define noise profile file
+noise_profile_file = os.path.join(current_dir, 'Dataset_Piso', 'Noise.WAV')
 
 # Helper function to sort files by the numeric part in the filename
 def sort_key(file_path):
@@ -28,29 +37,54 @@ def sort_key(file_path):
     numeric_part = ''.join(filter(str.isdigit, file_name))
     return int(numeric_part) if numeric_part else 0
 
-# Load list of audio and accelerometer files
-tijoleira_files_audio = sorted(
-    [os.path.join(tijoleira_dir_audio, file) for file in os.listdir(tijoleira_dir_audio) if file.endswith('.WAV')],
+# Load list of audio and accelerometer files for AMR_MOVEMENT
+good_bearing_files_audio_m = sorted(
+    [os.path.join(good_bearing_dir_audio_m, file) for file in os.listdir(good_bearing_dir_audio_m) if file.endswith('.WAV')],
     key=sort_key
 )
-liso_files_audio = sorted(
-    [os.path.join(liso_dir_audio, file) for file in os.listdir(liso_dir_audio) if file.endswith('.WAV')],
+damaged_bearing_files_audio_m = sorted(
+    [os.path.join(damaged_bearing_dir_audio_m, file) for file in os.listdir(damaged_bearing_dir_audio_m) if file.endswith('.WAV')],
     key=sort_key
 )
-tijoleira_files_acel = sorted(
-    [os.path.join(tijoleira_dir_acel, file) for file in os.listdir(tijoleira_dir_acel) if file.endswith('.csv')],
+good_bearing_files_acel_m = sorted(
+    [os.path.join(good_bearing_dir_acel_m, file) for file in os.listdir(good_bearing_dir_acel_m) if file.endswith('.csv')],
     key=sort_key
 )
-liso_files_acel = sorted(
-    [os.path.join(liso_dir_acel, file) for file in os.listdir(liso_dir_acel) if file.endswith('.csv')],
+damaged_bearing_files_acel_m = sorted(
+    [os.path.join(damaged_bearing_dir_acel_m, file) for file in os.listdir(damaged_bearing_dir_acel_m) if file.endswith('.csv')],
     key=sort_key
 )
 
-# Print the sorted lists for verification
-'''print("Tijoleira Audio Files:", tijoleira_files_audio[150:155])
-print("Tijoleira Accelerometer Files:", tijoleira_files_acel[150:155])
-print("Liso Audio Files:", liso_files_audio[150:155])
-print("Liso Accelerometer Files:", liso_files_acel[150:155])'''
+# Load list of audio and accelerometer files for AMR_STOPPED
+good_bearing_files_audio_s = sorted(
+    [os.path.join(good_bearing_dir_audio_s, file) for file in os.listdir(good_bearing_dir_audio_s) if file.endswith('.WAV')],
+    key=sort_key
+)
+damaged_bearing_files_audio_s = sorted(
+    [os.path.join(damaged_bearing_dir_audio_s, file) for file in os.listdir(damaged_bearing_dir_audio_s) if file.endswith('.WAV')],
+    key=sort_key
+)
+good_bearing_files_acel_s = sorted(
+    [os.path.join(good_bearing_dir_acel_s, file) for file in os.listdir(good_bearing_dir_acel_s) if file.endswith('.csv')],
+    key=sort_key
+)
+damaged_bearing_files_acel_s = sorted(
+    [os.path.join(damaged_bearing_dir_acel_s, file) for file in os.listdir(damaged_bearing_dir_acel_s) if file.endswith('.csv')],
+    key=sort_key
+)
+
+# Combine audio files
+good_bearing_files_audio = good_bearing_files_audio_m + good_bearing_files_audio_s
+damaged_bearing_files_audio = damaged_bearing_files_audio_m + damaged_bearing_files_audio_s
+
+# Combine accelerometer files
+good_bearing_files_acel = good_bearing_files_acel_m + good_bearing_files_acel_s
+damaged_bearing_files_acel = damaged_bearing_files_acel_m + damaged_bearing_files_acel_s
+
+good_bearing_files_audio = sorted(good_bearing_files_audio, key=sort_key)
+damaged_bearing_files_audio = sorted(damaged_bearing_files_audio, key=sort_key)
+good_bearing_files_acel = sorted(good_bearing_files_acel, key=sort_key)
+damaged_bearing_files_acel = sorted(damaged_bearing_files_acel, key=sort_key)
 
 
 # Define feature extraction functions
@@ -68,17 +102,17 @@ audio_features = []
 accel_features = []
 labels = []
 
-# Process TIJOLEIRA files
-for audio_file, accel_file in zip(tijoleira_files_audio, tijoleira_files_acel):
+# Process good_bearing files
+for audio_file, accel_file in zip(good_bearing_files_audio, good_bearing_files_acel):
     audio_features.append(extract_audio_features(audio_file))
     accel_features.append(extract_accel_features(accel_file))
-    labels.append(1)  # 1 for TIJOLEIRA
+    labels.append(1)  # 1 for good_bearing
 
-# Process LISO files
-for audio_file, accel_file in zip(liso_files_audio, liso_files_acel):
+# Process damaged_bearing files
+for audio_file, accel_file in zip(damaged_bearing_files_audio, damaged_bearing_files_acel):
     audio_features.append(extract_audio_features(audio_file))
     accel_features.append(extract_accel_features(accel_file))
-    labels.append(0)  # 0 for LISO
+    labels.append(0)  # 0 for damaged_bearing
 
 # Pad audio sequences
 max_audio_length = max(len(a) for a in audio_features)
@@ -149,7 +183,7 @@ y_test_classes = np.argmax(y_test, axis=1)
 accuracy = accuracy_score(y_test_classes, y_pred_classes)
 precision = precision_score(y_test_classes, y_pred_classes)
 recall = recall_score(y_test_classes, y_pred_classes)
-report = classification_report(y_test_classes, y_pred_classes, target_names=['LISO', 'TIJOLEIRA'])
+report = classification_report(y_test_classes, y_pred_classes, target_names=['damaged_bearing', 'good_bearing'])
 
 print(f"Accuracy: {accuracy:.4f}")
 print(f"Precision: {precision:.4f}")
@@ -162,7 +196,7 @@ conf_matrix = confusion_matrix(y_test_classes, y_pred_classes)
 
 # Plot confusion matrix
 plt.figure(figsize=(8, 6))
-sns.heatmap(conf_matrix, annot=True, fmt="d", cmap="Blues", xticklabels=['LISO', 'TIJOLEIRA'], yticklabels=['LISO', 'TIJOLEIRA'])
+sns.heatmap(conf_matrix, annot=True, fmt="d", cmap="Blues", xticklabels=['damaged_bearing', 'good_bearing'], yticklabels=['damaged_bearing', 'good_bearing'])
 plt.ylabel('Actual')
 plt.xlabel('Predicted')
 plt.title('Confusion Matrix')
