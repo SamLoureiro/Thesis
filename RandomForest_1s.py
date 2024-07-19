@@ -5,7 +5,6 @@ import librosa
 from scipy.stats import kurtosis, skew
 from sklearn.preprocessing import StandardScaler
 import scipy.signal
-#import tensorflow_decision_forests as tfdf
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.utils import shuffle, compute_class_weight
 from sklearn.model_selection import train_test_split, cross_val_score
@@ -27,13 +26,11 @@ damaged_bearing_dir_audio_s = os.path.join(current_dir, 'Dataset_Bearings', 'AMR
 good_bearing_dir_acel_s = os.path.join(current_dir, 'Dataset_Bearings', 'AMR_STOPPED', 'GOOD', 'ACEL')
 damaged_bearing_dir_acel_s = os.path.join(current_dir, 'Dataset_Bearings', 'AMR_STOPPED', 'DAMAGED', 'ACEL')
 
-# Define noise profile file
 noise_profile_file = os.path.join(current_dir, 'Dataset_Piso', 'Noise.WAV')
 
 # Helper function to sort files by the numeric part in the filename
 def sort_key(file_path):
     file_name = os.path.basename(file_path)
-    # Extract the numeric part from the filename for sorting
     numeric_part = ''.join(filter(str.isdigit, file_name))
     return int(numeric_part) if numeric_part else 0
 
@@ -81,22 +78,19 @@ damaged_bearing_files_audio = damaged_bearing_files_audio_m + damaged_bearing_fi
 good_bearing_files_acel = good_bearing_files_acel_m + good_bearing_files_acel_s
 damaged_bearing_files_acel = damaged_bearing_files_acel_m + damaged_bearing_files_acel_s
 
+# Sort files
 good_bearing_files_audio = sorted(good_bearing_files_audio, key=sort_key)
 damaged_bearing_files_audio = sorted(damaged_bearing_files_audio, key=sort_key)
 good_bearing_files_acel = sorted(good_bearing_files_acel, key=sort_key)
 damaged_bearing_files_acel = sorted(damaged_bearing_files_acel, key=sort_key)
 
-
 # Define feature extraction functions
 def extract_audio_features(file_path, noise_profile):
-    # Load audio file
     y, sr = librosa.load(file_path, sr=192000)
     # Apply noise reduction
-    #y = nr.reduce_noise(y=y, sr=sr, y_noise=noise_profile, prop_decrease = 0.2, n_fft=2048, hop_length=512)
-
+    # y = nr.reduce_noise(y=y, sr=sr, y_noise=noise_profile, prop_decrease=0.2, n_fft=2048, hop_length=512)
+    
     epsilon = 1e-10
-
-    # Extract features
     features = {
         'mean': np.mean(y),
         'std': np.std(y),
@@ -105,23 +99,19 @@ def extract_audio_features(file_path, noise_profile):
         'skew': skew(y) if np.std(y) > epsilon else 0
     }
     
-    # FFT between 20kHz and 96kHz
     fft_result = np.abs(np.fft.fft(y, n=2048))
     freqs = np.fft.fftfreq(2048, 1/sr)
     fft_20k_96k = fft_result[(freqs >= 20000) & (freqs <= 96000)]
-    fft_20k_96k = fft_20k_96k[:1024]  # Take the positive half of the FFT
-
+    fft_20k_96k = fft_20k_96k[:1024]
     # 96000/1024 = 93.75 Hz per bin -> 20kHz = 213.33 bins, 96kHz = 1024 bins 1024 - 214 = 811
-    
-    # Add FFT features
+
     for i, value in enumerate(fft_20k_96k):
         features[f'fft_20k_96k_{i}'] = value
     
-    # MFCCs
     mfccs = librosa.feature.mfcc(y=y, sr=sr, n_fft=2048, hop_length=512, 
-                                                     window=scipy.signal.get_window('hamming', 2048), htk=False, 
-                                                     center=True, pad_mode='reflect', power=2.0, 
-                                                     n_mels=120, fmax=sr/2)
+                                 window=scipy.signal.get_window('hamming', 2048), htk=False, 
+                                 center=True, pad_mode='reflect', power=2.0, 
+                                 n_mels=120, fmax=sr/2)
     for i in range(mfccs.shape[0]):
         avg = np.mean(mfccs[i, :])
         std = np.std(mfccs[i, :])
@@ -179,10 +169,42 @@ y = np.array(labels)
 # Shuffle the data and labels
 combined_features_normalized, y = shuffle(combined_features_normalized, y, random_state=42)
 
+# Extract features for each file and combine them
+combined_features = []
+labels = []
+
+# Process good_bearing files
+for audio_file, accel_file in zip(good_bearing_files_audio, good_bearing_files_acel):
+    audio_features = extract_audio_features(audio_file, noise_profile_file)
+    accel_features = extract_accel_features(accel_file)
+    combined = {**audio_features, **accel_features}
+    combined_features.append(combined)
+    labels.append(1)  # 1 for good_bearing
+
+# Process damaged_bearing files
+for audio_file, accel_file in zip(damaged_bearing_files_audio, damaged_bearing_files_acel):
+    audio_features = extract_audio_features(audio_file, noise_profile_file)
+    accel_features = extract_accel_features(accel_file)
+    combined = {**audio_features, **accel_features}
+    combined_features.append(combined)
+    labels.append(0)  # 0 for damaged_bearing
+
+# Create DataFrame
+combined_features_df = pd.DataFrame(combined_features)
+
+# Normalize features
+scaler = StandardScaler()
+combined_features_normalized = scaler.fit_transform(combined_features_df)
+
+# Convert labels to numpy array
+y = np.array(labels)
+
+# Shuffle the data and labels
+combined_features_normalized, y = shuffle(combined_features_normalized, y, random_state=42)
+
 # Train classifier
 X_train, X_test, y_train, y_test = train_test_split(combined_features_normalized, y, test_size=0.2, random_state=42)
 clf = RandomForestClassifier(class_weight='balanced')
-#clf = tfdf.keras.RandomForestModel(task=tfdf.keras.Task.CLASSIFICATION)
 clf.fit(X_train, y_train)
 
 # Evaluate
@@ -223,3 +245,4 @@ plt.ylabel('Actual')
 plt.xlabel('Predicted')
 plt.title('Confusion Matrix')
 plt.show()
+
