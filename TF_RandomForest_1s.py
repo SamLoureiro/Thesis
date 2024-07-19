@@ -99,7 +99,7 @@ def extract_audio_features(file_path, noise_profile, options):
     
     features = {}
     
-    if options['basis']:
+    if options['basics']:
         features = {
             'mean': np.mean(y),
             'std': np.std(y),

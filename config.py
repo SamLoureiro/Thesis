@@ -2,7 +2,7 @@
 
 # Preprocessing options
 preprocessing_options = {
-    'basis': True,
+    'basics': True,                # mean, std, rms, kurtosis, skew
     'noise_reduction': False,
     'fft': True,
     'mfcc': True,
