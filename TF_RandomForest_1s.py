@@ -7,6 +7,7 @@ from scipy.stats import kurtosis, skew
 from sklearn.preprocessing import StandardScaler
 import scipy.signal
 import tensorflow_decision_forests as tfdf
+import tensorflow as tf
 from sklearn.utils import shuffle
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import precision_score, recall_score, f1_score, accuracy_score, classification_report, confusion_matrix
@@ -83,6 +84,7 @@ damaged_bearing_files_audio = damaged_bearing_files_audio_m + damaged_bearing_fi
 good_bearing_files_acel = good_bearing_files_acel_m + good_bearing_files_acel_s
 damaged_bearing_files_acel = damaged_bearing_files_acel_m + damaged_bearing_files_acel_s
 
+# Ensure sort order
 good_bearing_files_audio = sorted(good_bearing_files_audio, key=sort_key)
 damaged_bearing_files_audio = sorted(damaged_bearing_files_audio, key=sort_key)
 good_bearing_files_acel = sorted(good_bearing_files_acel, key=sort_key)
@@ -172,6 +174,9 @@ for audio_file, accel_file in zip(good_bearing_files_audio, good_bearing_files_a
     if config.force_balanced_dataset and count == max_count:
         break
 
+n_samples_healthy = len(combined_features)
+print(f"Number of samples (Healthy Bearing): {n_samples_healthy}")
+
 count = 0
 # Process damaged_bearing files
 for audio_file, accel_file in zip(damaged_bearing_files_audio, damaged_bearing_files_acel):
@@ -185,6 +190,9 @@ for audio_file, accel_file in zip(damaged_bearing_files_audio, damaged_bearing_f
     count += 1
     if config.force_balanced_dataset and count == max_count:
         break
+    
+n_samples_damaged = len(combined_features) - n_samples_healthy
+print(f"Number of samples (Damaged Bearing): {n_samples_damaged}")
 
 # Create DataFrame
 combined_features_df = pd.DataFrame(combined_features)
@@ -209,6 +217,8 @@ clf = tfdf.keras.GradientBoostedTreesModel(
     max_depth=config.model_params['max_depth']
 )
 
+#adamw_optimizer = tf.keras.optimizers.AdamW(learning_rate=0.001, weight_decay=1e-4)
+
 clf.fit(X_train, y_train)
 
 clf.compile(loss='binary_crossentropy', metrics=["accuracy"])
@@ -219,13 +229,22 @@ clf.summary()
 model_save_path = os.path.join(current_dir, "saved_model")
 clf.save(model_save_path)
 
+# The training logs
+logs = clf.make_inspector().training_logs()
+
+# Final training accuracy and loss
+final_training_accuracy = logs[-1].evaluation.accuracy
+final_training_loss = logs[-1].evaluation.loss
+print(f"Final Training Accuracy: {final_training_accuracy:.4f}")
+print(f"Final Training Loss: {final_training_loss:.4f}")
+
 # Evaluate the model
 evaluation = clf.evaluate(X_test, y_test, return_dict=True)
 
 print("\n")
 
-for name, value in evaluation.items():
-  print(f"{name}: {value:.4f}")
+#for name, value in evaluation.items():
+#  print(f"{name}: {value:.4f}")
 
 print('Test accuracy:', evaluation)
 
@@ -235,8 +254,6 @@ print(f'Test Loss: {test_loss:.4f}')
 
 tfdf.model_plotter.plot_model_in_colab(clf, tree_idx=0, max_depth=3)
 
-# The training logs
-logs = clf.make_inspector().training_logs()
 
 plt.figure(figsize=(12, 4))
 
@@ -249,6 +266,12 @@ plt.subplot(1, 2, 2)
 plt.plot([log.num_trees for log in logs], [log.evaluation.loss for log in logs])
 plt.xlabel("Number of trees")
 plt.ylabel("Logloss (out-of-bag)")
+
+plt.tight_layout()
+
+# Save the residual plot
+results_plot_path = os.path.join(current_dir, 'Results', 'FULL_DATASET', 'acc_loss_fft_noise_basics_stft_mfcc.svg')
+plt.savefig(results_plot_path, format='svg')
 
 plt.show()
 
@@ -278,8 +301,8 @@ print(f"Accuracy: {accuracy:.4f}")
 
 # Classification report
 print("Classification Report:")
-target_names = ['GOOD', 'HEAVILY_DAMAGED']
-print(classification_report(y_test, y_pred, target_names=['HEAVILY_DAMAGED', 'GOOD']))
+target_names = ['HEALTHY', 'DAMAGED']
+print(classification_report(y_test, y_pred, target_names=['DAMAGED', 'HEALTHY']))
 
 # Confusion matrix
 conf_matrix = confusion_matrix(y_test, y_pred, labels=[0, 1])
@@ -290,4 +313,8 @@ sns.heatmap(conf_matrix, annot=True, fmt='d', cmap='Blues', xticklabels=target_n
 plt.xlabel('Predicted Label')
 plt.ylabel('True Label')
 plt.title('Confusion Matrix')
+plt.tight_layout()
+# Save the residual plot
+results_plot_path = os.path.join(current_dir, 'Results', 'FULL_DATASET', 'conf_matrix_fft_noise_basics_stft_mfcc.svg')
+plt.savefig(results_plot_path, format='svg')
 plt.show()
