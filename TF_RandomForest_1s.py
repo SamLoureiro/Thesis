@@ -241,7 +241,7 @@ clf.fit(X_train, y_train)
 
 clf.compile(loss='binary_crossentropy', metrics=["accuracy"])
 
-clf.summary()
+#clf.summary()
 
 # Save the model
 model_save_path = os.path.join(current_dir, "saved_model")
@@ -289,7 +289,7 @@ plt.ylabel("Logloss (out-of-bag)")
 plt.tight_layout()
 
 # Save the residual plot
-results_plot_path = os.path.join(current_dir, 'Results', 'AMR_STOPPED', 'RF', 'rf_acc_loss_fft.svg')
+results_plot_path = os.path.join(current_dir, 'Results', 'FULL_DATASET', 'GBDT', 'gbdt_acc_loss_fft_1024.svg')
 plt.savefig(results_plot_path, format='svg')
 
 plt.show()
@@ -315,11 +315,17 @@ print(f"Number of damaged bearings (1) in the test set: {label_counts.get(1, 0)}
 
 # Print the inference time
 pre_proc_time = end_time_pre_proc - start_time_pre_proc
+average_pre_proc_time = pre_proc_time / len(combined_features)
 inference_time = end_time_test_set - start_time_test_set
 average_inference_time = inference_time / len(y_test)
+print("\n")
+print("Time Metrics:")
 print(f"Pre-processing Time: {pre_proc_time:.4f} seconds")
+print(f"Average Pre-processing Time: {average_pre_proc_time:.4f} seconds")
 print(f"Inference Time: {inference_time:.4f} seconds")
 print(f"Average Inference Time: {average_inference_time:.4f} seconds")
+
+print("\n")
 
 print(f"Precision: {precision:.4f}")
 print(f"Recall: {recall:.4f}")
@@ -342,6 +348,6 @@ plt.ylabel('True Label')
 plt.title('Confusion Matrix')
 plt.tight_layout()
 # Save the residual plot
-results_plot_path = os.path.join(current_dir, 'Results', 'AMR_STOPPED', 'RF', 'rf_conf_matrix_fft.svg')
+results_plot_path = os.path.join(current_dir, 'Results', 'FULL_DATASET', 'GBDT', 'gbdt_conf_matrix_fft_1024.svg')
 plt.savefig(results_plot_path, format='svg')
 plt.show()
