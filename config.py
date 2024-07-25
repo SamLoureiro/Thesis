@@ -2,11 +2,11 @@
 
 # Preprocessing options
 preprocessing_options = {
-    'basics': True,                # mean, std, rms, kurtosis, skew
+    'basics': False,                # mean, std, rms, kurtosis, skew
     'noise_reduction': False,
     'fft': True,
-    'mfcc': True,
-    'stft': True
+    'mfcc': False,
+    'stft': False
 }
 
 # Noise reduction parameters
@@ -39,12 +39,28 @@ stft_params = {
     'win_length': 1024
 }
 
-# ML model parameters
-model_params = {
+# Model
+
+model = {
+    'GBDT': False,
+    'RF': True
+}
+
+# GBDT model parameters
+model_params_GBDT = {
     'task': 'CLASSIFICATION',
-    'num_trees': 500,
-    'growing_strategy': 'BEST_FIRST_GLOBAL',
-    'max_depth': 12
+    'num_trees': 300,                              # Default: 300                              
+    'growing_strategy': 'LOCAL',                   #  Default: 'LOCAL'
+    'max_depth': 6,                                # Default: 6
+    'early_stopping': 'LOSS_INCREASE'              # Default: 'LOSS_INCREASE'
+}
+
+# RF model parameters
+model_params_RF = {
+    'task': 'CLASSIFICATION',
+    'num_trees': 300,                              # Default: 300                              
+    'growing_strategy': 'LOCAL',                   # Default: 'LOCAL'
+    'max_depth': 16,                               # Default: 16
 }
 
 # Force 50%-50% dataset

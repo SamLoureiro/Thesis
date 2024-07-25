@@ -21,10 +21,10 @@ import config  # Import the config file
 # Define directories
 current_dir = os.getcwd()
 
-good_bearing_dir_audio_m = os.path.join(current_dir, 'Dataset_Bearings', 'AMR_MOVEMENT', 'GOOD', 'AUDIO')
-damaged_bearing_dir_audio_m = os.path.join(current_dir, 'Dataset_Bearings', 'AMR_MOVEMENT', 'DAMAGED', 'AUDIO')
-good_bearing_dir_acel_m = os.path.join(current_dir, 'Dataset_Bearings', 'AMR_MOVEMENT', 'GOOD', 'ACEL')
-damaged_bearing_dir_acel_m = os.path.join(current_dir, 'Dataset_Bearings', 'AMR_MOVEMENT', 'DAMAGED', 'ACEL')
+#good_bearing_dir_audio_m = os.path.join(current_dir, 'Dataset_Bearings', 'AMR_MOVEMENT', 'GOOD', 'AUDIO')
+#damaged_bearing_dir_audio_m = os.path.join(current_dir, 'Dataset_Bearings', 'AMR_MOVEMENT', 'DAMAGED', 'AUDIO')
+#good_bearing_dir_acel_m = os.path.join(current_dir, 'Dataset_Bearings', 'AMR_MOVEMENT', 'GOOD', 'ACEL')
+#damaged_bearing_dir_acel_m = os.path.join(current_dir, 'Dataset_Bearings', 'AMR_MOVEMENT', 'DAMAGED', 'ACEL')
 
 good_bearing_dir_audio_s = os.path.join(current_dir, 'Dataset_Bearings', 'AMR_STOPPED', 'GOOD', 'AUDIO')
 damaged_bearing_dir_audio_s = os.path.join(current_dir, 'Dataset_Bearings', 'AMR_STOPPED', 'DAMAGED', 'AUDIO')
@@ -41,7 +41,7 @@ def sort_key(file_path):
     return int(numeric_part) if numeric_part else 0
 
 # Load list of audio and accelerometer files for AMR_MOVEMENT
-good_bearing_files_audio_m = sorted(
+'''good_bearing_files_audio_m = sorted(
     [os.path.join(good_bearing_dir_audio_m, file) for file in os.listdir(good_bearing_dir_audio_m) if file.endswith('.WAV')],
     key=sort_key
 )
@@ -56,7 +56,7 @@ good_bearing_files_acel_m = sorted(
 damaged_bearing_files_acel_m = sorted(
     [os.path.join(damaged_bearing_dir_acel_m, file) for file in os.listdir(damaged_bearing_dir_acel_m) if file.endswith('.csv')],
     key=sort_key
-)
+)'''
 
 # Load list of audio and accelerometer files for AMR_STOPPED
 good_bearing_files_audio_s = sorted(
@@ -77,12 +77,12 @@ damaged_bearing_files_acel_s = sorted(
 )
 
 # Combine audio files
-good_bearing_files_audio = good_bearing_files_audio_m + good_bearing_files_audio_s
-damaged_bearing_files_audio = damaged_bearing_files_audio_m + damaged_bearing_files_audio_s
+good_bearing_files_audio = good_bearing_files_audio_s #+ good_bearing_files_audio_m 
+damaged_bearing_files_audio = damaged_bearing_files_audio_s #+ damaged_bearing_files_audio_m  
 
 # Combine accelerometer files
-good_bearing_files_acel = good_bearing_files_acel_m + good_bearing_files_acel_s
-damaged_bearing_files_acel = damaged_bearing_files_acel_m + damaged_bearing_files_acel_s
+good_bearing_files_acel = good_bearing_files_acel_s #+ good_bearing_files_acel_m 
+damaged_bearing_files_acel = damaged_bearing_files_acel_s #+ damaged_bearing_files_acel_m 
 
 # Ensure sort order
 good_bearing_files_audio = sorted(good_bearing_files_audio, key=sort_key)
@@ -210,12 +210,25 @@ combined_features_normalized, y = shuffle(combined_features_normalized, y, rando
 # Train classifier
 X_train, X_test, y_train, y_test = train_test_split(combined_features_normalized, y, test_size=0.2, random_state=42)
 
-clf = tfdf.keras.GradientBoostedTreesModel(
-    task=tfdf.keras.Task.CLASSIFICATION, 
-    num_trees=config.model_params['num_trees'], 
-    growing_strategy=config.model_params['growing_strategy'], 
-    max_depth=config.model_params['max_depth']
-)
+if(config.model['GBDT']):
+
+    clf = tfdf.keras.GradientBoostedTreesModel(
+        task=tfdf.keras.Task.CLASSIFICATION, 
+        num_trees=config.model_params_GBDT['num_trees'], 
+        growing_strategy=config.model_params_GBDT['growing_strategy'], 
+        max_depth=config.model_params_GBDT['max_depth'],
+        early_stopping=config.model_params_GBDT['early_stopping']
+    )
+
+elif (config.model['RF']):
+
+    clf = tfdf.keras.RandomForestModel(
+        task=tfdf.keras.Task.CLASSIFICATION, 
+        num_trees=config.model_params_RF['num_trees'], 
+        growing_strategy=config.model_params_RF['growing_strategy'], 
+        max_depth=config.model_params_RF['max_depth']
+    )
+
 
 #adamw_optimizer = tf.keras.optimizers.AdamW(learning_rate=0.001, weight_decay=1e-4)
 
@@ -270,7 +283,7 @@ plt.ylabel("Logloss (out-of-bag)")
 plt.tight_layout()
 
 # Save the residual plot
-results_plot_path = os.path.join(current_dir, 'Results', 'FULL_DATASET', 'acc_loss_fft_noise_basics_stft_mfcc.svg')
+results_plot_path = os.path.join(current_dir, 'Results', 'AMR_STOPPED', 'RF', 'rf_acc_loss_fft.svg')
 plt.savefig(results_plot_path, format='svg')
 
 plt.show()
@@ -315,6 +328,6 @@ plt.ylabel('True Label')
 plt.title('Confusion Matrix')
 plt.tight_layout()
 # Save the residual plot
-results_plot_path = os.path.join(current_dir, 'Results', 'FULL_DATASET', 'conf_matrix_fft_noise_basics_stft_mfcc.svg')
+results_plot_path = os.path.join(current_dir, 'Results', 'AMR_STOPPED', 'RF', 'rf_conf_matrix_fft.svg')
 plt.savefig(results_plot_path, format='svg')
 plt.show()
