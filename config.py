@@ -40,17 +40,16 @@ stft_params = {
 }
 
 # Model
-
 model = {
-    'GBDT': False,
-    'RF': True
+    'GBDT': True,
+    'RF': False
 }
 
 # GBDT model parameters
 model_params_GBDT = {
     'task': 'CLASSIFICATION',
     'num_trees': 300,                              # Default: 300                              
-    'growing_strategy': 'LOCAL',                   #  Default: 'LOCAL'
+    'growing_strategy': 'LOCAL',                   # Default: 'LOCAL'
     'max_depth': 6,                                # Default: 6
     'early_stopping': 'LOSS_INCREASE'              # Default: 'LOSS_INCREASE'
 }
