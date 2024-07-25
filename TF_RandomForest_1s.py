@@ -1,4 +1,5 @@
 import os
+import time
 import numpy as np
 import pandas as pd
 import librosa
@@ -21,10 +22,10 @@ import config  # Import the config file
 # Define directories
 current_dir = os.getcwd()
 
-#good_bearing_dir_audio_m = os.path.join(current_dir, 'Dataset_Bearings', 'AMR_MOVEMENT', 'GOOD', 'AUDIO')
-#damaged_bearing_dir_audio_m = os.path.join(current_dir, 'Dataset_Bearings', 'AMR_MOVEMENT', 'DAMAGED', 'AUDIO')
-#good_bearing_dir_acel_m = os.path.join(current_dir, 'Dataset_Bearings', 'AMR_MOVEMENT', 'GOOD', 'ACEL')
-#damaged_bearing_dir_acel_m = os.path.join(current_dir, 'Dataset_Bearings', 'AMR_MOVEMENT', 'DAMAGED', 'ACEL')
+good_bearing_dir_audio_m = os.path.join(current_dir, 'Dataset_Bearings', 'AMR_MOVEMENT', 'GOOD', 'AUDIO')
+damaged_bearing_dir_audio_m = os.path.join(current_dir, 'Dataset_Bearings', 'AMR_MOVEMENT', 'DAMAGED', 'AUDIO')
+good_bearing_dir_acel_m = os.path.join(current_dir, 'Dataset_Bearings', 'AMR_MOVEMENT', 'GOOD', 'ACEL')
+damaged_bearing_dir_acel_m = os.path.join(current_dir, 'Dataset_Bearings', 'AMR_MOVEMENT', 'DAMAGED', 'ACEL')
 
 good_bearing_dir_audio_s = os.path.join(current_dir, 'Dataset_Bearings', 'AMR_STOPPED', 'GOOD', 'AUDIO')
 damaged_bearing_dir_audio_s = os.path.join(current_dir, 'Dataset_Bearings', 'AMR_STOPPED', 'DAMAGED', 'AUDIO')
@@ -41,7 +42,7 @@ def sort_key(file_path):
     return int(numeric_part) if numeric_part else 0
 
 # Load list of audio and accelerometer files for AMR_MOVEMENT
-'''good_bearing_files_audio_m = sorted(
+good_bearing_files_audio_m = sorted(
     [os.path.join(good_bearing_dir_audio_m, file) for file in os.listdir(good_bearing_dir_audio_m) if file.endswith('.WAV')],
     key=sort_key
 )
@@ -56,7 +57,7 @@ good_bearing_files_acel_m = sorted(
 damaged_bearing_files_acel_m = sorted(
     [os.path.join(damaged_bearing_dir_acel_m, file) for file in os.listdir(damaged_bearing_dir_acel_m) if file.endswith('.csv')],
     key=sort_key
-)'''
+)
 
 # Load list of audio and accelerometer files for AMR_STOPPED
 good_bearing_files_audio_s = sorted(
@@ -77,12 +78,12 @@ damaged_bearing_files_acel_s = sorted(
 )
 
 # Combine audio files
-good_bearing_files_audio = good_bearing_files_audio_s #+ good_bearing_files_audio_m 
-damaged_bearing_files_audio = damaged_bearing_files_audio_s #+ damaged_bearing_files_audio_m  
+good_bearing_files_audio = good_bearing_files_audio_s + good_bearing_files_audio_m 
+damaged_bearing_files_audio = damaged_bearing_files_audio_s + damaged_bearing_files_audio_m  
 
 # Combine accelerometer files
-good_bearing_files_acel = good_bearing_files_acel_s #+ good_bearing_files_acel_m 
-damaged_bearing_files_acel = damaged_bearing_files_acel_s #+ damaged_bearing_files_acel_m 
+good_bearing_files_acel = good_bearing_files_acel_s + good_bearing_files_acel_m 
+damaged_bearing_files_acel = damaged_bearing_files_acel_s + damaged_bearing_files_acel_m 
 
 # Ensure sort order
 good_bearing_files_audio = sorted(good_bearing_files_audio, key=sort_key)
@@ -163,6 +164,8 @@ labels = []
 count = 0
 max_count = min(len(good_bearing_files_audio), len(damaged_bearing_files_audio))
 
+start_time_pre_proc = time.time()
+
 # Process good_bearing files
 for audio_file, accel_file in zip(good_bearing_files_audio, good_bearing_files_acel):
     audio_features = extract_audio_features(audio_file, noise_profile_file, config.preprocessing_options)
@@ -190,6 +193,8 @@ for audio_file, accel_file in zip(damaged_bearing_files_audio, damaged_bearing_f
     count += 1
     if config.force_balanced_dataset and count == max_count:
         break
+
+end_time_pre_proc = time.time()
     
 n_samples_damaged = len(combined_features) - n_samples_healthy
 print(f"Number of samples (Damaged Bearing): {n_samples_damaged}")
@@ -252,8 +257,9 @@ print(f"Final Training Accuracy: {final_training_accuracy:.4f}")
 print(f"Final Training Loss: {final_training_loss:.4f}")
 
 # Evaluate the model
+start_time_test_set = time.time()
 evaluation = clf.evaluate(X_test, y_test, return_dict=True)
-
+end_time_test_set = time.time()
 print("\n")
 
 #for name, value in evaluation.items():
@@ -306,6 +312,14 @@ label_counts = dict(zip(unique, counts))
 
 print(f"Number of good bearings (0) in the test set: {label_counts.get(0, 0)}")
 print(f"Number of damaged bearings (1) in the test set: {label_counts.get(1, 0)}")
+
+# Print the inference time
+pre_proc_time = end_time_pre_proc - start_time_pre_proc
+inference_time = end_time_test_set - start_time_test_set
+average_inference_time = inference_time / len(y_test)
+print(f"Pre-processing Time: {pre_proc_time:.4f} seconds")
+print(f"Inference Time: {inference_time:.4f} seconds")
+print(f"Average Inference Time: {average_inference_time:.4f} seconds")
 
 print(f"Precision: {precision:.4f}")
 print(f"Recall: {recall:.4f}")
