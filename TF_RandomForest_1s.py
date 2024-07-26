@@ -96,7 +96,8 @@ def extract_audio_features(file_path, noise_profile, options):
     y, sr = librosa.load(file_path, sr=192000)
     
     if options['noise_reduction']:
-        y = nr.reduce_noise(y=y, sr=sr, y_noise=noise_profile, n_fft=config.noise_reduction_params['n_fft'], hop_length=config.noise_reduction_params['hop_length'])
+        y = nr.reduce_noise(y=y, sr=sr, y_noise=noise_profile, prop_decrease=config.noise_reduction_params['prop_decrease'], 
+                            n_fft=config.noise_reduction_params['n_fft'], hop_length=config.noise_reduction_params['hop_length'])
 
     epsilon = 1e-10
     
@@ -132,7 +133,7 @@ def extract_audio_features(file_path, noise_profile, options):
             features[f'mfcc_std_{i}'] = std
 
     if options['stft']:
-        stft = np.abs(librosa.stft(y, n_fft=config.stft_params['n_fft'], hop_length=config.stft_params['hop_length'], win_length=config.stft_params['win_length']))
+        stft = np.abs(librosa.stft(y, n_fft=config.stft_params['n_fft'], hop_length=config.stft_params['hop_length']))
         stft_mean = np.mean(stft, axis=1)
         stft_std = np.std(stft, axis=1)
         for i in range(len(stft_mean)):

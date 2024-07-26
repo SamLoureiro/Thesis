@@ -4,15 +4,16 @@
 preprocessing_options = {
     'basics': False,                # mean, std, rms, kurtosis, skew
     'noise_reduction': False,
-    'fft': False,
+    'fft': True,
     'mfcc': False,
-    'stft': True
+    'stft': False
 }
 
 # Noise reduction parameters
 noise_reduction_params = {
     'n_fft': 1024,
-    'hop_length': 512
+    'hop_length': 512,
+    'prop_decrease': 1
 }
 
 # FFT parameters
@@ -36,7 +37,6 @@ mfcc_params = {
 stft_params = {
     'n_fft': 1024,
     'hop_length': 512,
-    'win_length': 1024
 }
 
 # Model
