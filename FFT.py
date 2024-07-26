@@ -8,12 +8,12 @@ import noisereduce as nr
 current_dir = os.getcwd()
 
 # Directories for DAMAGED and GOOD audio files
-audio_dir_damaged = os.path.join(current_dir, 'Dataset_Bearings', 'BEARING_ONLY', 'V2', 'DAMAGED', 'RAW')
-audio_filename_damaged = "RECORD_2.WAV"
+audio_dir_damaged = os.path.join(current_dir, 'Dataset_Bearings', 'BEARING_ONLY', 'V3')
+audio_filename_damaged = "DAMAGED.WAV"
 audio_path_damaged = os.path.join(audio_dir_damaged, audio_filename_damaged)
 
-audio_dir_good = os.path.join(current_dir, 'Dataset_Bearings', 'BEARING_ONLY', 'V2', 'GOOD', 'RAW')
-audio_filename_good = "RECORD_0.WAV"
+audio_dir_good = os.path.join(current_dir, 'Dataset_Bearings', 'BEARING_ONLY', 'V3')
+audio_filename_good = "GOOD.WAV"
 audio_path_good = os.path.join(audio_dir_good, audio_filename_good)
 
 # Noise profile path
@@ -83,7 +83,7 @@ plt.tight_layout()
 
 # Save the plot
 fft_plot_path = os.path.join(plot_dir, 'FFT_DAMAGED_vs_GOOD_Original_and_Denoised.svg')
-plt.savefig(fft_plot_path, format='svg')
+#plt.savefig(fft_plot_path, format='svg')
 plt.show()
 
 # Compute the residuals
@@ -111,7 +111,7 @@ plt.tight_layout()
 
 # Save the residual plot
 residual_plot_path = os.path.join(plot_dir, 'FFT_Residuals_DAMAGED_vs_GOOD_Original_and_Denoised.svg')
-plt.savefig(residual_plot_path, format='svg')
+#plt.savefig(residual_plot_path, format='svg')
 plt.show()
 
 print(f'Plots saved to {fft_plot_path} and {residual_plot_path}')

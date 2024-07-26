@@ -2,7 +2,7 @@
 
 # Preprocessing options
 preprocessing_options = {
-    'basics': False,                # mean, std, rms, kurtosis, skew
+    'basics': False,          # mean, std, rms, kurtosis, skew
     'noise_reduction': False,
     'fft': True,
     'mfcc': False,
@@ -11,33 +11,37 @@ preprocessing_options = {
 
 # Noise reduction parameters
 noise_reduction_params = {
-    'n_fft': 1024,
-    'hop_length': 512,
-    'prop_decrease': 1
+    'n_fft': 2048,        # Number of FFT points
+    'hop_length': 1024,   # Hop size between successive frames
+    'prop_decrease': 0.5  # Property for noise reduction
 }
 
 # FFT parameters
 fft_params = {
-    'n_fft': 1024,
-    'fmin': 500,
-    'fmax': 85000
+    'n_fft': 2048,  # Number of FFT points
+    'fmin': 500,    # Minimum frequency (Hz)
+    'fmax': 85000   # Maximum frequency (Hz)
 }
 
 # MFCC parameters
 mfcc_params = {
-    'n_fft': 1024,
-    'hop_length': 512,
-    'n_mels': 50,
-    'fmin': 500,
-    'fmax': 85000,
-    'n_mfcc': 10
+    'n_fft': 2048,       # Number of FFT points
+    'hop_length': 1024,  # Hop size between successive frames
+    'n_mels': 128,        # Number of Mel filter banks
+    'fmin': 500,         # Minimum frequency (Hz)
+    'fmax': 85000,       # Maximum frequency (Hz)
+    'n_mfcc': 20         # Number of MFCC coefficients
 }
 
 # STFT parameters
 stft_params = {
-    'n_fft': 1024,
-    'hop_length': 512,
+    'n_fft': 2048,       # Number of FFT points
+    'hop_length': 1024,  # Hop size between successive frames
 }
+
+# Force 50%-50% dataset
+force_balanced_dataset = True
+
 
 # Model
 model = {
@@ -47,7 +51,6 @@ model = {
 
 # GBDT model parameters
 model_params_GBDT = {
-    'task': 'CLASSIFICATION',
     'num_trees': 300,                              # Default: 300                              
     'growing_strategy': 'LOCAL',                   # Default: 'LOCAL'
     'max_depth': 6,                                # Default: 6
@@ -56,11 +59,8 @@ model_params_GBDT = {
 
 # RF model parameters
 model_params_RF = {
-    'task': 'CLASSIFICATION',
     'num_trees': 300,                              # Default: 300                              
     'growing_strategy': 'LOCAL',                   # Default: 'LOCAL'
     'max_depth': 16,                               # Default: 16
 }
 
-# Force 50%-50% dataset
-force_balanced_dataset = True
