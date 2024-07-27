@@ -142,6 +142,9 @@ labels = []
 count = 0
 max_count = min(len(good_bearing_files_audio), len(damaged_bearing_files_audio))
 
+# Create a string based on the methods that are on
+methods_string = "_".join(method for method, value in config.preprocessing_options.items() if value)
+
 start_time_pre_proc = time.time()
 
 # Process good_bearing files
@@ -202,6 +205,9 @@ if(config.model['GBDT']):
         max_depth=config.model_params_GBDT['max_depth'],
         early_stopping=config.model_params_GBDT['early_stopping']
     )
+    
+    Folder = 'GBDT'
+    model = 'gbdt'
 
 elif (config.model['RF']):
 
@@ -211,6 +217,9 @@ elif (config.model['RF']):
         growing_strategy=config.model_params_RF['growing_strategy'], 
         max_depth=config.model_params_RF['max_depth']
     )
+    
+    Folder = 'RF'
+    model = 'rf'
 
 
 #adamw_optimizer = tf.keras.optimizers.AdamW(learning_rate=0.001, weight_decay=1e-4)
@@ -267,7 +276,7 @@ plt.ylabel("Logloss (out-of-bag)")
 plt.tight_layout()
 
 # Save the residual plot
-results_plot_path = os.path.join(current_dir, 'Results', 'FULL_DATASET', 'GBDT', 'gbdt_acc_loss_fft_1024.svg')
+results_plot_path = os.path.join(current_dir, 'Results', 'AMR_STOPPED', Folder, model + '_acc_loss_' + methods_string + '_1024.svg')
 plt.savefig(results_plot_path, format='svg')
 
 plt.show()
@@ -288,8 +297,8 @@ accuracy = accuracy_score(y_test, y_pred)
 unique, counts = np.unique(y_test, return_counts=True)
 label_counts = dict(zip(unique, counts))
 
-print(f"Number of good bearings (0) in the test set: {label_counts.get(0, 0)}")
-print(f"Number of damaged bearings (1) in the test set: {label_counts.get(1, 0)}")
+#print(f"Number of good bearings (0) in the test set: {label_counts.get(0, 0)}")
+#print(f"Number of damaged bearings (1) in the test set: {label_counts.get(1, 0)}")
 
 # Print the inference time
 pre_proc_time = end_time_pre_proc - start_time_pre_proc
@@ -326,6 +335,26 @@ plt.ylabel('True Label')
 plt.title('Confusion Matrix')
 plt.tight_layout()
 # Save the residual plot
-results_plot_path = os.path.join(current_dir, 'Results', 'FULL_DATASET', 'GBDT', 'gbdt_conf_matrix_fft_1024.svg')
+results_plot_path = os.path.join(current_dir, 'Results', 'AMR_STOPPED', Folder, model + '_conf_matrix_' + methods_string + '_1024.svg')
 plt.savefig(results_plot_path, format='svg')
 plt.show()
+
+# Save the classification report
+
+# Gather all metrics
+metrics_dict = {
+    'Metric': ['Precision', 'Recall', 'F1 Score', 'Accuracy', 'Loss', 'Training Accuracy', 'Training Loss',
+               'Average Pre-processing Time','Average Inference Time'],
+    'Value': [precision, recall, f1, accuracy, test_loss, final_training_accuracy, final_training_loss,
+              average_pre_proc_time, average_inference_time]
+}
+
+# Create DataFrame
+metrics_df = pd.DataFrame(metrics_dict)
+
+# Save DataFrame to CSV
+metrics_save_path = os.path.join(current_dir, 'Results', 'AMR_STOPPED', Folder, model + '_metrics_' + methods_string + '_1024.csv')
+metrics_df.to_csv(metrics_save_path, index=False)
+
+print("\nMetrics saved to CSV:")
+print(metrics_df)

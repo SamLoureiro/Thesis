@@ -162,6 +162,9 @@ def extract_accel_features(file_path):
 combined_features = []
 labels = []
 
+# Create a string based on the methods that are on
+methods_string = "_".join(method for method, value in config.preprocessing_options.items() if value)
+
 count = 0
 max_count = min(len(good_bearing_files_audio), len(damaged_bearing_files_audio))
 
@@ -290,7 +293,7 @@ plt.ylabel("Logloss (out-of-bag)")
 plt.tight_layout()
 
 # Save the residual plot
-results_plot_path = os.path.join(current_dir, 'Results', 'FULL_DATASET', 'GBDT', 'gbdt_acc_loss_fft_1024.svg')
+results_plot_path = os.path.join(current_dir, 'Results', 'FULL_DATASET', 'GBDT', 'gbdt_acc_loss_' + methods_string + '_1024.svg')
 plt.savefig(results_plot_path, format='svg')
 
 plt.show()
@@ -349,6 +352,6 @@ plt.ylabel('True Label')
 plt.title('Confusion Matrix')
 plt.tight_layout()
 # Save the residual plot
-results_plot_path = os.path.join(current_dir, 'Results', 'FULL_DATASET', 'GBDT', 'gbdt_conf_matrix_fft_1024.svg')
+results_plot_path = os.path.join(current_dir, 'Results', 'FULL_DATASET', 'GBDT', 'gbdt_conf_matrix_' + methods_string + '_1024.svg')
 plt.savefig(results_plot_path, format='svg')
 plt.show()
