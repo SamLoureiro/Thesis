@@ -3,7 +3,7 @@
 # Preprocessing options
 preprocessing_options = {
     'basics': False,          # mean, std, rms, kurtosis, skew
-    'noise_reduction': False,
+    'noise_reduction': True,
     'fft': False,
     'mfcc': True,
     'stft': False
@@ -68,5 +68,5 @@ model_params_RF = {
 save_model = False
 
 # Save Metrics
-save_metrics = False
+save_metrics = True
 
