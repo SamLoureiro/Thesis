@@ -22,6 +22,11 @@ import config  # Import the config file
 # Define directories
 current_dir = os.getcwd()
 
+good_bearing_dir_audio_m = os.path.join(current_dir, 'Dataset_Bearings', 'AMR_MOVEMENT', 'GOOD', 'AUDIO')
+damaged_bearing_dir_audio_m = os.path.join(current_dir, 'Dataset_Bearings', 'AMR_MOVEMENT', 'DAMAGED', 'AUDIO')
+good_bearing_dir_acel_m = os.path.join(current_dir, 'Dataset_Bearings', 'AMR_MOVEMENT', 'GOOD', 'ACEL')
+damaged_bearing_dir_acel_m = os.path.join(current_dir, 'Dataset_Bearings', 'AMR_MOVEMENT', 'DAMAGED', 'ACEL')
+
 good_bearing_dir_audio_s = os.path.join(current_dir, 'Dataset_Bearings', 'AMR_STOPPED', 'GOOD', 'AUDIO')
 damaged_bearing_dir_audio_s = os.path.join(current_dir, 'Dataset_Bearings', 'AMR_STOPPED', 'DAMAGED', 'AUDIO')
 good_bearing_dir_acel_s = os.path.join(current_dir, 'Dataset_Bearings', 'AMR_STOPPED', 'GOOD', 'ACEL')
@@ -35,6 +40,24 @@ def sort_key(file_path):
     file_name = os.path.basename(file_path)
     numeric_part = ''.join(filter(str.isdigit, file_name))
     return int(numeric_part) if numeric_part else 0
+
+# Load list of audio and accelerometer files for AMR_MOVEMENT
+good_bearing_files_audio_m = sorted(
+    [os.path.join(good_bearing_dir_audio_m, file) for file in os.listdir(good_bearing_dir_audio_m) if file.endswith('.WAV')],
+    key=sort_key
+)
+damaged_bearing_files_audio_m = sorted(
+    [os.path.join(damaged_bearing_dir_audio_m, file) for file in os.listdir(damaged_bearing_dir_audio_m) if file.endswith('.WAV')],
+    key=sort_key
+)
+good_bearing_files_acel_m = sorted(
+    [os.path.join(good_bearing_dir_acel_m, file) for file in os.listdir(good_bearing_dir_acel_m) if file.endswith('.csv')],
+    key=sort_key
+)
+damaged_bearing_files_acel_m = sorted(
+    [os.path.join(damaged_bearing_dir_acel_m, file) for file in os.listdir(damaged_bearing_dir_acel_m) if file.endswith('.csv')],
+    key=sort_key
+)
 
 # Load list of audio and accelerometer files for AMR_STOPPED
 good_bearing_files_audio_s = sorted(
@@ -55,12 +78,12 @@ damaged_bearing_files_acel_s = sorted(
 )
 
 # Combine audio files
-good_bearing_files_audio = good_bearing_files_audio_s
-damaged_bearing_files_audio = damaged_bearing_files_audio_s 
+good_bearing_files_audio = good_bearing_files_audio_s + good_bearing_files_audio_m 
+damaged_bearing_files_audio = damaged_bearing_files_audio_s + damaged_bearing_files_audio_m  
 
 # Combine accelerometer files
-good_bearing_files_acel = good_bearing_files_acel_s
-damaged_bearing_files_acel = damaged_bearing_files_acel_s 
+good_bearing_files_acel = good_bearing_files_acel_s + good_bearing_files_acel_m 
+damaged_bearing_files_acel = damaged_bearing_files_acel_s + damaged_bearing_files_acel_m 
 
 # Ensure sort order
 good_bearing_files_audio = sorted(good_bearing_files_audio, key=sort_key)
@@ -139,11 +162,11 @@ def extract_accel_features(file_path):
 combined_features = []
 labels = []
 
-count = 0
-max_count = min(len(good_bearing_files_audio), len(damaged_bearing_files_audio))
-
 # Create a string based on the methods that are on
 methods_string = "_".join(method for method, value in config.preprocessing_options.items() if value)
+
+count = 0
+max_count = min(len(good_bearing_files_audio), len(damaged_bearing_files_audio))
 
 start_time_pre_proc = time.time()
 
@@ -205,10 +228,10 @@ if(config.model['GBDT']):
         max_depth=config.model_params_GBDT['max_depth'],
         early_stopping=config.model_params_GBDT['early_stopping']
     )
-    
     Folder = 'GBDT'
     model = 'gbdt'
-
+    
+    
 elif (config.model['RF']):
 
     clf = tfdf.keras.RandomForestModel(
@@ -217,10 +240,8 @@ elif (config.model['RF']):
         growing_strategy=config.model_params_RF['growing_strategy'], 
         max_depth=config.model_params_RF['max_depth']
     )
-    
     Folder = 'RF'
     model = 'rf'
-
 
 #adamw_optimizer = tf.keras.optimizers.AdamW(learning_rate=0.001, weight_decay=1e-4)
 
@@ -276,7 +297,7 @@ plt.ylabel("Logloss (out-of-bag)")
 plt.tight_layout()
 
 # Save the residual plot
-results_plot_path = os.path.join(current_dir, 'Results', 'AMR_STOPPED', Folder, model + '_acc_loss_' + methods_string + '_2048.svg')
+results_plot_path = os.path.join(current_dir, 'Results', 'FULL_DATASET', Folder, model + '_acc_loss_' + methods_string + '_2048.svg')
 plt.savefig(results_plot_path, format='svg')
 
 plt.show()
@@ -297,8 +318,8 @@ accuracy = accuracy_score(y_test, y_pred)
 unique, counts = np.unique(y_test, return_counts=True)
 label_counts = dict(zip(unique, counts))
 
-#print(f"Number of good bearings (0) in the test set: {label_counts.get(0, 0)}")
-#print(f"Number of damaged bearings (1) in the test set: {label_counts.get(1, 0)}")
+print(f"Number of good bearings (0) in the test set: {label_counts.get(0, 0)}")
+print(f"Number of damaged bearings (1) in the test set: {label_counts.get(1, 0)}")
 
 # Print the inference time
 pre_proc_time = end_time_pre_proc - start_time_pre_proc
@@ -335,7 +356,7 @@ plt.ylabel('True Label')
 plt.title('Confusion Matrix')
 plt.tight_layout()
 # Save the residual plot
-results_plot_path = os.path.join(current_dir, 'Results', 'AMR_STOPPED', Folder, model + '_conf_matrix_' + methods_string + '_2048.svg')
+results_plot_path = os.path.join(current_dir, 'Results', 'FULL_DATASET', Folder, model + '_conf_matrix_' + methods_string + '_2048.svg')
 plt.savefig(results_plot_path, format='svg')
 plt.show()
 
@@ -353,7 +374,7 @@ metrics_dict = {
 metrics_df = pd.DataFrame(metrics_dict)
 
 # Save DataFrame to CSV
-metrics_save_path = os.path.join(current_dir, 'Results', 'AMR_STOPPED', Folder, model + '_metrics_' + methods_string + '_2048.csv')
+metrics_save_path = os.path.join(current_dir, 'Results', 'FULL_DATASET', Folder, model + '_metrics_' + methods_string + '_2048.csv')
 metrics_df.to_csv(metrics_save_path, index=False)
 
 print("\nMetrics saved to CSV:")

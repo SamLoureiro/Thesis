@@ -3,10 +3,10 @@
 # Preprocessing options
 preprocessing_options = {
     'basics': False,          # mean, std, rms, kurtosis, skew
-    'noise_reduction': False,
-    'fft': True,
+    'noise_reduction': True,
+    'fft': False,
     'mfcc': False,
-    'stft': False
+    'stft': True
 }
 
 # Noise reduction parameters
@@ -45,8 +45,8 @@ force_balanced_dataset = True
 
 # Model
 model = {
-    'GBDT': False,
-    'RF': True
+    'GBDT': True,
+    'RF': False
 }
 
 # GBDT model parameters

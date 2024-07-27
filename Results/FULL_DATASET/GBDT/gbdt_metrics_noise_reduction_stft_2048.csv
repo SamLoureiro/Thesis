@@ -1,0 +1,10 @@
+Metric,Value
+Precision,1.0
+Recall,0.9761904761904762
+F1 Score,0.9879518072289156
+Accuracy,0.988929889298893
+Loss,0.06118714436888695
+Training Accuracy,1.0
+Training Loss,6.637544174736831e-06
+Average Pre-processing Time,0.05033746449905034
+Average Inference Time,0.024227802164000337
