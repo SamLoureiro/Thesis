@@ -7,7 +7,7 @@ import librosa
 import noisereduce as nr
 from scipy.stats import kurtosis, skew
 from sklearn.preprocessing import StandardScaler
-import scipy.signal
+from sklearn.model_selection import cross_val_score, StratifiedKFold
 import tensorflow_decision_forests as tfdf
 import tensorflow as tf
 from sklearn.utils import shuffle
@@ -290,14 +290,17 @@ elif (config.model['RF']):
 
 #adamw_optimizer = tf.keras.optimizers.AdamW(learning_rate=0.001, weight_decay=1e-4)
 
-clf.fit(X_train, y_train)
+history = clf.fit(X_train, y_train, validation_data=(X_test, y_test), return_dict=True)
+history_dict = history.history
 
 clf.compile(loss='binary_crossentropy', metrics=["accuracy"])
 
-#clf.summary()
+clf.summary()
+
+#print(history_dict.keys())
+
 
 # Save the model
-
 if(config.save_model):
     model_save_path = os.path.join(current_dir, "saved_model")
     clf.save(model_save_path)
@@ -328,7 +331,6 @@ print(f'Test Loss: {test_loss:.4f}')
 
 tfdf.model_plotter.plot_model_in_colab(clf, tree_idx=0, max_depth=3)
 
-
 plt.figure(figsize=(12, 4))
 
 plt.subplot(1, 2, 1)
@@ -343,7 +345,7 @@ plt.ylabel("Logloss (out-of-bag)")
 
 plt.tight_layout()
 
-# Save the residual plot
+# Save the combined plot
 if(config.save_metrics):
     results_plot_path = os.path.join(current_dir, 'Results', 'FULL_DATASET', Folder, model + '_acc_loss_' + methods_string + '_2048.svg')
     plt.savefig(results_plot_path, format='svg')
@@ -420,7 +422,7 @@ metrics_dict = {
     'Value': [precision, recall, f1, accuracy, test_loss, final_training_accuracy, final_training_loss,
               average_pre_proc_time, average_inference_time]
 }
-
+# Save Metrics
 if(config.save_metrics):
     # Create DataFrame
     metrics_df = pd.DataFrame(metrics_dict)
