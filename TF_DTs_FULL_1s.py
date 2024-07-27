@@ -1,5 +1,6 @@
 import os
 import time
+import warnings
 import numpy as np
 import pandas as pd
 import librosa
@@ -122,15 +123,59 @@ def extract_audio_features(file_path, noise_profile, options):
             features[f'fft_{config.fft_params["fmin"]}_{config.fft_params["fmax"]}_{i}'] = value
 
     if options['mfcc']:
-        mfccs = librosa.feature.mfcc(y=y, sr=sr, n_fft=config.mfcc_params['n_fft'], hop_length=config.mfcc_params['hop_length'], 
-                                     window=scipy.signal.get_window('hamming', config.mfcc_params['n_fft']), htk=False, 
-                                     center=True, pad_mode='reflect', power=2.0, 
-                                     n_mels=config.mfcc_params['n_mels'], fmin=config.mfcc_params['fmin'], fmax=config.mfcc_params['fmax'], n_mfcc=config.mfcc_params['n_mfcc'])
+        audio_data = np.append(y[0], y[1:] - 0.97 * y[:-1])
+        # Short-Time Fourier Transform (STFT)
+        stft = librosa.stft(audio_data, n_fft=config.mfcc_params['n_fft'], hop_length=config.mfcc_params['hop_length'])
+        # Power spectrum
+        spectrogram = np.abs(stft)**2
+                
+        n_mels = config.mfcc_params['n_mels']
+        
+        mfcc_computed = False
+        
+        # Find the number of Mel filter banks that can be computed without any empty filters
+        # Unccomment the following code if the samples proprietaries are not known, or the pre-processing parameters were changed
+        '''while not mfcc_computed:
+            try:
+                with warnings.catch_warnings(record=True) as w:
+                    warnings.simplefilter("always")
+                    # Mel-frequency filter bank
+                    mel_filterbank = librosa.filters.mel(sr=sr, n_fft=config.mfcc_params['n_fft'],n_mels=n_mels, fmin=config.mfcc_params['fmin'], fmax=config.mfcc_params['fmax'])
+                    
+                    if len(w) > 0 and any("Empty filters detected" in str(warning.message) for warning in w):
+                        raise librosa.util.exceptions.ParameterError("Empty filters detected")
+                    mfcc_computed = True
+            
+            except librosa.util.exceptions.ParameterError as e:
+                if 'Empty filters detected' in str(e):
+                    n_mels -= 1  # Reduce n_mels and try again
+                    print(f"Reducing n_mels to {n_mels} and retrying...")
+                    if n_mels < 1:
+                        raise ValueError("Unable to compute MFCCs with given parameters.")
+                else:
+                    raise  # Re-raise any other exceptions'''
+                
+        # Mel-frequency filter bank
+        # Comment the following line if the samples proprietaries are not known, or the pre-processing parameters were changed
+        mel_filterbank = librosa.filters.mel(sr=sr, n_fft=config.mfcc_params['n_fft'],n_mels=n_mels, fmin=config.mfcc_params['fmin'], fmax=config.mfcc_params['fmax'])
+        
+        # Apply Mel filterbank
+        mel_spectrogram = np.dot(mel_filterbank, spectrogram)
+
+        # Convert to dB scale
+        mel_spectrogram = librosa.power_to_db(mel_spectrogram, ref=np.max)
+
+        # MFCCs
+        mfccs = librosa.feature.mfcc(S=mel_spectrogram, n_mfcc=40)
+        
         for i in range(mfccs.shape[0]):
             avg = np.mean(mfccs[i, :])
             std = np.std(mfccs[i, :])
             features[f'mfcc_avg_{i}'] = avg
             features[f'mfcc_std_{i}'] = std
+
+        return features
+    
 
     if options['stft']:
         stft = np.abs(librosa.stft(y, n_fft=config.stft_params['n_fft'], hop_length=config.stft_params['hop_length']))
@@ -252,8 +297,10 @@ clf.compile(loss='binary_crossentropy', metrics=["accuracy"])
 #clf.summary()
 
 # Save the model
-model_save_path = os.path.join(current_dir, "saved_model")
-clf.save(model_save_path)
+
+if(config.save_model):
+    model_save_path = os.path.join(current_dir, "saved_model")
+    clf.save(model_save_path)
 
 # The training logs
 logs = clf.make_inspector().training_logs()
@@ -297,8 +344,9 @@ plt.ylabel("Logloss (out-of-bag)")
 plt.tight_layout()
 
 # Save the residual plot
-results_plot_path = os.path.join(current_dir, 'Results', 'FULL_DATASET', Folder, model + '_acc_loss_' + methods_string + '_2048.svg')
-plt.savefig(results_plot_path, format='svg')
+if(config.save_metrics):
+    results_plot_path = os.path.join(current_dir, 'Results', 'FULL_DATASET', Folder, model + '_acc_loss_' + methods_string + '_2048.svg')
+    plt.savefig(results_plot_path, format='svg')
 
 plt.show()
 
@@ -355,9 +403,12 @@ plt.xlabel('Predicted Label')
 plt.ylabel('True Label')
 plt.title('Confusion Matrix')
 plt.tight_layout()
+
 # Save the residual plot
-results_plot_path = os.path.join(current_dir, 'Results', 'FULL_DATASET', Folder, model + '_conf_matrix_' + methods_string + '_2048.svg')
-plt.savefig(results_plot_path, format='svg')
+if(config.save_metrics):
+    results_plot_path = os.path.join(current_dir, 'Results', 'FULL_DATASET', Folder, model + '_conf_matrix_' + methods_string + '_2048.svg')
+    plt.savefig(results_plot_path, format='svg')
+
 plt.show()
 
 # Save the classification report
@@ -370,12 +421,13 @@ metrics_dict = {
               average_pre_proc_time, average_inference_time]
 }
 
-# Create DataFrame
-metrics_df = pd.DataFrame(metrics_dict)
+if(config.save_metrics):
+    # Create DataFrame
+    metrics_df = pd.DataFrame(metrics_dict)
 
-# Save DataFrame to CSV
-metrics_save_path = os.path.join(current_dir, 'Results', 'FULL_DATASET', Folder, model + '_metrics_' + methods_string + '_2048.csv')
-metrics_df.to_csv(metrics_save_path, index=False)
+    # Save DataFrame to CSV
+    metrics_save_path = os.path.join(current_dir, 'Results', 'FULL_DATASET', Folder, model + '_metrics_' + methods_string + '_2048.csv')
+    metrics_df.to_csv(metrics_save_path, index=False)
 
-print("\nMetrics saved to CSV:")
-print(metrics_df)
+    print("\nMetrics saved to CSV:")
+    print(metrics_df)

@@ -3,10 +3,10 @@
 # Preprocessing options
 preprocessing_options = {
     'basics': False,          # mean, std, rms, kurtosis, skew
-    'noise_reduction': True,
+    'noise_reduction': False,
     'fft': False,
-    'mfcc': False,
-    'stft': True
+    'mfcc': True,
+    'stft': False
 }
 
 # Noise reduction parameters
@@ -27,7 +27,7 @@ fft_params = {
 mfcc_params = {
     'n_fft': 2048,       # Number of FFT points
     'hop_length': 512,   # Hop size between successive frames
-    'n_mels': 256,       # Number of Mel filter banks
+    'n_mels': 106,       # Number of Mel filter banks
     'fmin': 500,         # Minimum frequency (Hz)
     'fmax': 80000,       # Maximum frequency (Hz)
     'n_mfcc': 40         # Number of MFCC coefficients
@@ -63,4 +63,10 @@ model_params_RF = {
     'growing_strategy': 'BEST_FIRST_GLOBAL',       # Default: 'LOCAL'
     'max_depth': 16,                               # Default: 16
 }
+
+# Save model
+save_model = False
+
+# Save Metrics
+save_metrics = False
 
