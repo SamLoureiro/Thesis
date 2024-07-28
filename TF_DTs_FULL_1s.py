@@ -297,7 +297,7 @@ clf.compile(loss='binary_crossentropy', metrics=["accuracy"])
 
 clf.summary()
 
-#print(history_dict.keys())
+print(history_dict.keys())
 
 
 # Save the model
