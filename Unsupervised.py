@@ -16,7 +16,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
-from keras.layers import LeakyReLU, Input, Dense
+from keras.layers import LeakyReLU, Input, Dense, BatchNormalization, Dropout
 from keras.models import Model
 from keras.callbacks import Callback
 
@@ -53,21 +53,36 @@ class LossHistory(Callback):
 
 # Improved autoencoder architecture
 def build_autoencoder_v2(input_dim):
+    # Input layer
     input_layer = Input(shape=(input_dim,))
-    encoded = Dense(128)(input_layer)
-    encoded = LeakyReLU(alpha=0.1)(encoded)
-    encoded = Dense(64)(encoded)
-    encoded = LeakyReLU(alpha=0.1)(encoded)
     
-    decoded = Dense(64)(encoded)
-    decoded = LeakyReLU(alpha=0.1)(decoded)
-    decoded = Dense(128)(decoded)
-    decoded = LeakyReLU(alpha=0.1)(decoded)
-    decoded = Dense(input_dim, activation='sigmoid')(decoded)
+    # Encoder
+    encoded = Dense(256, activation='relu')(input_layer)  # Increased units
+    encoded = BatchNormalization()(encoded)               # Added Batch Normalization
+    encoded = Dropout(0.3)(encoded)                        # Added Dropout for regularization
+    encoded = Dense(128, activation='relu')(encoded)       # Increased units
+    encoded = BatchNormalization()(encoded)               # Added Batch Normalization
+    encoded = Dropout(0.3)(encoded)                        # Added Dropout for regularization
+    encoded = Dense(64, activation='relu')(encoded)        # Reduced units
     
+    # Bottleneck
+    bottleneck = Dense(32, activation='relu')(encoded)      # Added bottleneck layer
+    
+    # Decoder
+    decoded = Dense(64, activation='relu')(bottleneck)      # Mirrored architecture from encoder
+    decoded = BatchNormalization()(decoded)                # Added Batch Normalization
+    decoded = Dropout(0.3)(decoded)                        # Added Dropout for regularization
+    decoded = Dense(128, activation='relu')(decoded)       # Mirrored architecture from encoder
+    decoded = BatchNormalization()(decoded)                # Added Batch Normalization
+    decoded = Dropout(0.3)(decoded)                        # Added Dropout for regularization
+    decoded = Dense(256, activation='relu')(decoded)       # Mirrored architecture from encoder
+    decoded = Dense(input_dim, activation='sigmoid')(decoded)  # Output layer
+
+    # Define the autoencoder and encoder models
     autoencoder = Model(input_layer, decoded)
-    encoder = Model(input_layer, encoded)
+    encoder = Model(input_layer, bottleneck)
     
+    # Compile the autoencoder
     autoencoder.compile(optimizer='adam', loss='mse')
     return autoencoder, encoder
 
@@ -246,12 +261,10 @@ y = np.array(labels)
 # Shuffle the data and labels
 combined_features_normalized, y = shuffle(combined_features_normalized, y, random_state=42)
 
-print(f"Number of samples: {len(combined_features_normalized)}")
-print(f"Number of features: {combined_features_normalized.shape[1]}")
 
 print(f"Preprocessing Time: {end_time_pre_proc - start_time_pre_proc:.2f} seconds")
 
-'''
+
 # Split data into training (normal) and test sets
 X_train, X_test, y_train, y_test = train_test_split(combined_features_normalized, y, test_size=0.2, random_state=42)
 
@@ -264,7 +277,7 @@ autoencoder, encoder = build_autoencoder_v2(input_dim)
 
 history = autoencoder.fit(X_train, X_train,
                  epochs=150,
-                 batch_size=64,
+                 batch_size=32,
                  validation_data=(X_test, X_test),
                  verbose=1)
 
@@ -358,4 +371,4 @@ plt.ylabel('Score')
 plt.title('Metrics vs. Threshold')
 plt.legend()
 plt.grid(True)
-plt.show()'''
+plt.show()
