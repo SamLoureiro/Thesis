@@ -246,6 +246,12 @@ y = np.array(labels)
 # Shuffle the data and labels
 combined_features_normalized, y = shuffle(combined_features_normalized, y, random_state=42)
 
+print(f"Number of samples: {len(combined_features_normalized)}")
+print(f"Number of features: {combined_features_normalized.shape[1]}")
+
+print(f"Preprocessing Time: {end_time_pre_proc - start_time_pre_proc:.2f} seconds")
+
+'''
 # Split data into training (normal) and test sets
 X_train, X_test, y_train, y_test = train_test_split(combined_features_normalized, y, test_size=0.2, random_state=42)
 
@@ -291,7 +297,7 @@ y_pred = (reconstruction_error > optimal_threshold).astype(int)
 cm = confusion_matrix(y, y_pred)
 
 # Calculate Precision, Recall, F1 Score, and ROC-AUC
-precision = precision_score(y, y_pred, zero_division=-1)
+precision = precision_score(y, y_pred, zero_division=0)
 recall = recall_score(y, y_pred)
 f1 = f1_score(y, y_pred)
 roc_auc = roc_auc_score(y, reconstruction_error)
@@ -338,7 +344,7 @@ roc_aucs = []
 for threshold in thresholds:
     y_pred = (reconstruction_error > threshold).astype(int)
     f1_scores.append(f1_score(y, y_pred))
-    precisions.append(precision_score(y, y_pred, zero_division=-1))
+    precisions.append(precision_score(y, y_pred, zero_division=0))
     recalls.append(recall_score(y, y_pred))
     roc_aucs.append(roc_auc_score(y, reconstruction_error))
 
@@ -352,4 +358,4 @@ plt.ylabel('Score')
 plt.title('Metrics vs. Threshold')
 plt.legend()
 plt.grid(True)
-plt.show()
+plt.show()'''
