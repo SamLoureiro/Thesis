@@ -11,12 +11,12 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import precision_score, recall_score, f1_score, roc_auc_score, confusion_matrix, accuracy_score, roc_auc_score
 from sklearn.model_selection import train_test_split
 import tensorflow as tf
+from tensorflow import keras
 import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
-from keras.layers import LeakyReLU
-from keras.layers import Input, Dense
+from tensorflow.python.keras.layers import LeakyReLU, Input, Dense
 from keras.models import Model
 from keras.callbacks import Callback
 
