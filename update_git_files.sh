@@ -9,3 +9,14 @@
 #chmod +x update_git_files.sh  --> Make script executable
 
 #./update_git_files.sh  --> Run script
+
+
+
+
+# Force Pull
+
+#git fetch --all
+
+#git reset --hard origin/master
+
+#git pull origin master
