@@ -16,7 +16,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
-from tensorflow.python.keras.layers import LeakyReLU, Input, Dense
+from keras.layers import LeakyReLU, Input, Dense
 from keras.models import Model
 from keras.callbacks import Callback
 
@@ -267,8 +267,6 @@ history_dict = history.history
 loss_value = history_dict['loss'][-1]
 val_loss_value = history_dict['val_loss'][-1]
 
-autoencoder.compile(loss='binary_crossentropy', metrics=["accuracy"])
-
 # Predict reconstruction
 X_test_pred = autoencoder.predict(combined_features_normalized)
 
@@ -293,7 +291,7 @@ y_pred = (reconstruction_error > optimal_threshold).astype(int)
 cm = confusion_matrix(y, y_pred)
 
 # Calculate Precision, Recall, F1 Score, and ROC-AUC
-precision = precision_score(y, y_pred)
+precision = precision_score(y, y_pred, zero_division=-1)
 recall = recall_score(y, y_pred)
 f1 = f1_score(y, y_pred)
 roc_auc = roc_auc_score(y, reconstruction_error)
@@ -340,7 +338,7 @@ roc_aucs = []
 for threshold in thresholds:
     y_pred = (reconstruction_error > threshold).astype(int)
     f1_scores.append(f1_score(y, y_pred))
-    precisions.append(precision_score(y, y_pred))
+    precisions.append(precision_score(y, y_pred, zero_division=-1))
     recalls.append(recall_score(y, y_pred))
     roc_aucs.append(roc_auc_score(y, reconstruction_error))
 
