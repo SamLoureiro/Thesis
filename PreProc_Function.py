@@ -45,11 +45,10 @@ def extract_audio_features(file_path, noise_profile, options):
                 
         n_mels = config.mfcc_params['n_mels']
         
-        mfcc_computed = False
-        
         # Find the number of Mel filter banks that can be computed without any empty filters
         # Unccomment the following code if the samples proprietaries are not known, or the pre-processing parameters were changed
-        '''while not mfcc_computed:
+        '''mfcc_computed = False
+        while not mfcc_computed:
             try:
                 with warnings.catch_warnings(record=True) as w:
                     warnings.simplefilter("always")
@@ -95,9 +94,11 @@ def extract_audio_features(file_path, noise_profile, options):
         stft = np.abs(librosa.stft(y, n_fft=config.stft_params['n_fft'], hop_length=config.stft_params['hop_length']))
         stft_mean = np.mean(stft, axis=1)
         stft_std = np.std(stft, axis=1)
+        stft_rms = np.sqrt(np.mean(stft**2, axis=1))
         for i in range(len(stft_mean)):
             features[f'stft_mean_{i}'] = stft_mean[i]
             features[f'stft_std_{i}'] = stft_std[i]
+            features[f'stft_rms_{i}'] = stft_rms[i]
 
     return features
 

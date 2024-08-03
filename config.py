@@ -5,8 +5,8 @@ preprocessing_options = {
     'basics': False,          # mean, std, rms, kurtosis, skew
     'noise_reduction': False,
     'fft': False,
-    'mfcc': True,
-    'stft': False
+    'mfcc': False,
+    'stft': True
 }
 
 # Noise reduction parameters
