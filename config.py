@@ -37,6 +37,10 @@ mfcc_params = {
 stft_params = {
     'n_fft': 2048,       # Number of FFT points
     'hop_length': 512,   # Hop size between successive frames
+    
+    # Frequency resolution = sampling rate / window size = 192000 / 2048 ≈ 93.75 Hz
+    # Time resolution = hop size / sampling rate = 512 / 192000 ≈ 0.00267 s
+    # This means you can observe changes in the frequency content every 2.67 milliseconds.
 }
 
 # Force 50%-50% dataset
