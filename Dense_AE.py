@@ -226,7 +226,6 @@ test_reconstruction_error = np.mean(np.abs(X_test - X_test_pred), axis=1)
 
 optimal_threshold = find_optimal_threshold(train_reconstruction_error, y_train)
 
-
 y_test_pred = (test_reconstruction_error > optimal_threshold).astype(int)
 
 # Evaluation
@@ -237,6 +236,17 @@ print(f"Recall: {recall_score(y_test, y_test_pred)}")
 print(f"F1 Score: {f1_score(y_test, y_test_pred)}")
 print(f"AUC: {roc_auc_score(y_test, test_reconstruction_error)}")
 print(f"Optimal Threshold: {optimal_threshold}")
+
+
+##################################################
+#F1-Score Results:
+#STFT: 0.769   (0.775 AUC)
+#MFCC: Detect everything as anomaly, need another method to find the optimal threshold. However, the model is not better than STFT based on the Metrics vs. Threshold' figure 
+#FFT: Detect everything as anomaly, need another method to find the optimal threshold. However, the model is not better than STFT based on the Metrics vs. Threshold' figure 
+#SP (basics): Detect everything as anomaly, need another method to find the optimal threshold. However, the model is not better than STFT based on the Metrics vs. Threshold' figure 
+#SP + STFT: 0.777 (0.780 AUC)
+#SP+FFT+MDCC+STFT: Detect everything as anomaly, need another method to find the optimal threshold. However, the model is not better than STFT based on the Metrics vs. Threshold' figure 
+#SP+STFT+NR: 0.771
 
 cm = confusion_matrix(y_test, y_test_pred)
 
@@ -257,23 +267,38 @@ plot_reduced_data(X_reduced, y_test, y_test_pred)
 
 # Thresholds vs metrics
 thresholds = np.linspace(min(test_reconstruction_error), max(test_reconstruction_error), 100)
-f1_scores = []
-precisions = []
-recalls = []
-roc_aucs = []
+f1_scores_test = []
+precisions_test = []
+recalls_test = []
+roc_aucs_test = []
+f1_scores_train= []
+precision_train = []
+recalls_train = []
+roc_aucs_train = []
+
 
 for threshold in thresholds:
     y_test_pred = (test_reconstruction_error > threshold).astype(int)
-    f1_scores.append(f1_score(y_test, y_test_pred))
-    precisions.append(precision_score(y_test, y_test_pred, zero_division=0))
-    recalls.append(recall_score(y_test, y_test_pred))
-    roc_aucs.append(roc_auc_score(y_test, test_reconstruction_error))
+    f1_scores_test.append(f1_score(y_test, y_test_pred))
+    precisions_test.append(precision_score(y_test, y_test_pred, zero_division=0))
+    recalls_test.append(recall_score(y_test, y_test_pred))
+    roc_aucs_test.append(roc_auc_score(y_test, test_reconstruction_error))
+    y_train_pred = (train_reconstruction_error > threshold).astype(int)
+    f1_scores_train.append(f1_score(y_train, y_train_pred))
+    precision_train.append(precision_score(y_train, y_train_pred, zero_division=0))
+    recalls_train.append(recall_score(y_train, y_train_pred))
+    roc_aucs_train.append(roc_auc_score(y_train, train_reconstruction_error))
 
 plt.figure(figsize=(12, 8))
-plt.plot(thresholds, f1_scores, label='F1 Score')
-plt.plot(thresholds, precisions, label='Precision')
-plt.plot(thresholds, recalls, label='Recall')
-plt.plot(thresholds, roc_aucs, label='ROC-AUC')
+plt.plot(thresholds, f1_scores_test, label='F1 Score_Test')
+plt.plot(thresholds, precisions_test, label='Precision_Test')
+plt.plot(thresholds, recalls_test, label='Recall_Test')
+plt.plot(thresholds, roc_aucs_test, label='ROC-AUC_Test')
+plt.plot(thresholds, f1_scores_train, label='F1 Score_Train')
+plt.plot(thresholds, precision_train, label='Precision_Train')
+plt.plot(thresholds, recalls_train, label='Recall_Train')
+plt.plot(thresholds, roc_aucs_train, label='ROC-AUC_Train')
+
 plt.xlabel('Threshold')
 plt.ylabel('Score')
 plt.title('Metrics vs. Threshold')
