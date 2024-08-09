@@ -248,6 +248,13 @@ print(f"Optimal Threshold: {optimal_threshold}")
 #SP+FFT+MDCC+STFT: Detect everything as anomaly, need another method to find the optimal threshold. However, the model is not better than STFT based on the Metrics vs. Threshold' figure 
 #SP+STFT+NR: 0.771
 
+# Count the number of good and damaged bearings in the test set
+unique, counts = np.unique(y_test, return_counts=True)
+label_counts = dict(zip(unique, counts))
+
+print(f"Number of good bearings (0) in the test set: {label_counts.get(0, 0)}")
+print(f"Number of damaged bearings (1) in the test set: {label_counts.get(1, 0)}")
+
 cm = confusion_matrix(y_test, y_test_pred)
 
 # Plot confusion matrix
