@@ -5,21 +5,16 @@ import pandas as pd
 import librosa
 import matplotlib.pyplot as plt
 import seaborn as sns
-from sklearn.utils import shuffle
 from scipy.signal.windows import hann
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import (precision_score, recall_score, f1_score, roc_auc_score, 
-                             confusion_matrix, accuracy_score, roc_curve, precision_recall_curve)
+                             confusion_matrix, accuracy_score, roc_curve)
 from sklearn.model_selection import train_test_split
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
 import tensorflow as tf
-from keras.layers import (LeakyReLU, Input, Dense, BatchNormalization, Dropout, LSTM, 
-                          RepeatVector, TimeDistributed, Bidirectional)
-from keras.models import Model
+from unsuper_time_models import RNN_Complex, RNN_Simple, CNN_Complex, CNN_Simple
 import plotly.graph_objects as go
-
-
 
 
 # Function to find the optimal threshold for reconstruction error
@@ -159,6 +154,12 @@ def stft(audio_file, n_fft=2048, hop_length=512, num_samples=50, mfcc = True, st
         mfccs = librosa.feature.mfcc(S=mel_spectrogram, n_mfcc=40, n_mels=106, fmin=500, fmax=85000)
         #print(mfccs.shape)
         avg_magnitude_mfcc, std_magnitude_mfcc = apply_moving_average(mfccs, num_samples)
+    #print("Shapes: ", avg_magnitude.shape, std_magnitude.shape, avg_magnitude_mfcc.shape, std_magnitude_mfcc.shape)
+    
+    # avg_magnitude: (num_freq_bins, num_time_frames) = (1025, 50)
+    # std_magnitude: (num_freq_bins, num_time_frames) = (1025, 50)
+    # avg_magnitude_mfcc: (num_mfcc, num_time_frames) = (40, 50)
+    # std_magnitude_mfcc: (num_mfcc, num_time_frames) = (40, 50)
     return avg_magnitude, std_magnitude, avg_magnitude_mfcc, std_magnitude_mfcc
 
 
@@ -193,77 +194,6 @@ def extract_raw_accel_features(csv_file_path):
     df = pd.read_csv(csv_file_path, usecols=columns)
     return df.to_numpy()
 
-def build_rnn_autoencoder(input_shape):
-    """Build and compile an RNN autoencoder model."""
-    inputs = Input(shape=input_shape)
-    
-    # Encoder
-    x = Bidirectional(LSTM(128, activation='relu', return_sequences=True))(inputs)
-    x = Dropout(0.2)(x)
-    x = BatchNormalization()(x)
-    
-    x = Bidirectional(LSTM(64, activation='relu', return_sequences=True))(x)
-    x = Dropout(0.2)(x)
-    x = BatchNormalization()(x)
-    
-    encoded = LSTM(32, activation='relu', return_sequences=False)(x)
-    encoded = Dropout(0.2)(encoded)
-    encoded = BatchNormalization()(encoded)
-    
-    # Bottleneck
-    bottleneck = Dense(16, activation='relu')(encoded)
-    bottleneck = RepeatVector(input_shape[0])(bottleneck)
-    
-    # Decoder
-    x = LSTM(32, activation='relu', return_sequences=True)(bottleneck)
-    x = Dropout(0.2)(x)
-    x = BatchNormalization()(x)
-    
-    x = LSTM(64, activation='relu', return_sequences=True)(x)
-    x = Dropout(0.2)(x)
-    x = BatchNormalization()(x)
-    
-    decoded = LSTM(128, activation='relu', return_sequences=True)(x)
-    outputs = TimeDistributed(Dense(input_shape[1]))(decoded)
-    
-    autoencoder = Model(inputs, outputs)
-    autoencoder.compile(optimizer='adam', loss='msle')
-    
-    return autoencoder
-
-def build_simpler_rnn_autoencoder(input_shape):
-    """Build and compile a simpler RNN autoencoder model."""
-    inputs = Input(shape=input_shape)
-    
-    # Encoder
-    x = Bidirectional(LSTM(64, activation='relu', return_sequences=True))(inputs)
-    x = Dropout(0.2)(x)
-    x = BatchNormalization()(x)
-    
-    encoded = LSTM(32, activation='relu', return_sequences=False)(x)
-    encoded = Dropout(0.2)(encoded)
-    encoded = BatchNormalization()(encoded)
-    
-    # Bottleneck
-    bottleneck = Dense(16, activation='relu')(encoded)
-    bottleneck = RepeatVector(input_shape[0])(bottleneck)
-    
-    # Decoder
-    x = LSTM(32, activation='relu', return_sequences=True)(bottleneck)
-    x = Dropout(0.2)(x)
-    x = BatchNormalization()(x)
-    
-    x = LSTM(64, activation='relu', return_sequences=True)(x)
-    x = Dropout(0.2)(x)
-    x = BatchNormalization()(x)
-    
-    decoded = LSTM(128, activation='relu', return_sequences=True)(x)
-    outputs = TimeDistributed(Dense(input_shape[1]))(decoded)
-    
-    autoencoder = Model(inputs, outputs)
-    autoencoder.compile(optimizer='adam', loss='msle')
-    
-    return autoencoder
 
 def find_optimal_threshold(reconstruction_error, y_true):
     """Find the optimal threshold for reconstruction error."""
@@ -315,6 +245,8 @@ def preprocess_data():
     # Process data
     audio_features, audio_std_features, audio_mfcc_features, audio_mfcc_std_features, accel_features, labels = [], [], [], [], [], []
     
+    start_time_pre_proc = time.time()
+    
     for audio_file, accel_file in zip(regular_audio, regular_accel):
         avg_magnitude, std_magnitude, avg_mfcc, std_mfcc = stft(audio_file)
         audio_features.append(avg_magnitude)
@@ -333,6 +265,8 @@ def preprocess_data():
         accel_features.append(extract_raw_accel_features(accel_file))
         labels.append(1)
     
+    end_time_pre_proc = time.time()
+    
     audio_features = np.array(audio_features)
     audio_std_features = np.array(audio_std_features)
     audio_mfcc_features = np.array(audio_mfcc_features)
@@ -346,12 +280,16 @@ def preprocess_data():
     audio_mfcc_std_features_reshaped = audio_mfcc_std_features.transpose(0, 2, 1)
     
     combined_features = np.concatenate((accel_features, audio_features_reshaped, audio_std_features_reshaped, audio_mfcc_features_reshaped, audio_mfcc_std_features_reshaped), axis=2)
-    
+    #combined_features = np.concatenate((accel_features, audio_mfcc_features_reshaped, audio_mfcc_std_features_reshaped), axis=2)
     # Normalize features
     scaler = StandardScaler()
     num_samples, time_steps, num_features = combined_features.shape
     combined_features_reshaped = combined_features.reshape(-1, num_features)
     combined_features_normalized = scaler.fit_transform(combined_features_reshaped).reshape(num_samples, time_steps, num_features)
+    
+    print("\nAverage Preprocessing Time per Sample: \n\n", (end_time_pre_proc - start_time_pre_proc) / len(labels))
+    
+    print("\nCombined Features Shape:\n", combined_features_normalized.shape)
     
     return train_test_split(combined_features_normalized, labels, test_size=0.2, random_state=42)
 
@@ -362,14 +300,16 @@ def main():
     
     # Model building and training
     input_shape = X_train.shape[1:]
-    autoencoder = build_simpler_rnn_autoencoder(input_shape)
+    autoencoder = CNN_Simple(input_shape)
     
     print("Training autoencoder...")
     autoencoder.fit(X_train, X_train, epochs=50, batch_size=64, validation_split=0.1, verbose=1)
     
     # Reconstruction and threshold finding
     X_train_pred = autoencoder.predict(X_train)
+    start_time = time.time()
     X_test_pred = autoencoder.predict(X_test)
+    inference_time = time.time() - start_time
     
     train_reconstruction_error = np.mean(np.abs(X_train - X_train_pred), axis=(1, 2))
     test_reconstruction_error = np.mean(np.abs(X_test - X_test_pred), axis=(1, 2))
@@ -379,24 +319,18 @@ def main():
     # Find the optimal threshold
     optimal_idx = np.argmax(tpr - fpr)  # This gives you the threshold with the maximum difference between TPR and FPR
     optimal_threshold = thresholds[optimal_idx]
-
-    print(f"Optimal Threshold (ROC): {optimal_threshold}")
-    
+   
     y_test_pred = (test_reconstruction_error > optimal_threshold).astype(int)
 
     # Evaluation
     print("Evaluation:")
-    print(f"Accuracy: {accuracy_score(y_test, y_test_pred)}")
-    print(f"Precision: {precision_score(y_test, y_test_pred)}")
-    print(f"Recall: {recall_score(y_test, y_test_pred)}")
-    print(f"F1 Score: {f1_score(y_test, y_test_pred)}")
-    print(f"AUC: {roc_auc_score(y_test, test_reconstruction_error)}")
-    print(f"Optimal Threshold: {optimal_threshold}")
-
-
-    ##################################################
-    #F1-Score and AUC Results:
-    
+    print(f"Optimal Threshold: {optimal_threshold:.3f}")  
+    print(f"Accuracy: {accuracy_score(y_test, y_test_pred):.3f}")
+    print(f"Precision: {precision_score(y_test, y_test_pred):.3f}")
+    print(f"Recall: {recall_score(y_test, y_test_pred):.3f}")
+    print(f"F1 Score: {f1_score(y_test, y_test_pred):.3f}")
+    print(f"AUC: {roc_auc_score(y_test, test_reconstruction_error):.3f}")
+    print(f"Average inference time per sample: {(inference_time / len(X_test)) * 1000:.3f} ms")
     
     
     
@@ -435,7 +369,7 @@ def main():
     recalls_train = []
     roc_aucs_train = []
 
-
+    # Calculate metrics for each threshold
     for threshold in thresholds:
         y_test_pred = (test_reconstruction_error > threshold).astype(int)
         f1_scores_test.append(f1_score(y_test, y_test_pred))
@@ -448,22 +382,7 @@ def main():
         recalls_train.append(recall_score(y_train, y_train_pred))
         roc_aucs_train.append(roc_auc_score(y_train, train_reconstruction_error))
 
-    '''plt.figure(figsize=(12, 8))
-    plt.plot(thresholds, f1_scores_test, label='F1 Score_Test')
-    plt.plot(thresholds, precisions_test, label='Precision_Test')
-    plt.plot(thresholds, recalls_test, label='Recall_Test')
-    plt.plot(thresholds, roc_aucs_test, label='ROC-AUC_Test')
-    plt.plot(thresholds, f1_scores_train, label='F1 Score_Train')
-    plt.plot(thresholds, precision_train, label='Precision_Train')
-    plt.plot(thresholds, recalls_train, label='Recall_Train')
-    plt.plot(thresholds, roc_aucs_train, label='ROC-AUC_Train')
-
-    plt.xlabel('Threshold')
-    plt.ylabel('Score')
-    plt.title('Metrics vs. Threshold')
-    plt.legend()
-    plt.grid(True)
-    plt.show()'''
+    # Plot metrics vs threshold
     plot_metrics_vs_threshold(thresholds, f1_scores_test, precisions_test, recalls_test, roc_aucs_test,
                             f1_scores_train, precision_train, recalls_train, roc_aucs_train,
                             optimal_threshold)
