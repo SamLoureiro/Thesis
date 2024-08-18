@@ -4,6 +4,7 @@ Notas de desenvolvimento:
 
 - Aumentar a sample rate do acelerómetro para permitir mais features de áudio apenas aumentou a comlexidade do modelo e não melhorou a performance (o RNN_Complex não conseguiu treinar por falta de RAM)
 - A precisão dos vários modelos é a mais penalizada
+- O modelo Dense_AE com o pré-processamento igual aos métodos supervisionados é o que apresenta melhor performance
 
 '''
 
@@ -23,7 +24,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
 import tensorflow as tf
-from unsuper_time_models import RNN_Complex, RNN_Simple, CNN_Complex, CNN_Simple
+from UN_CNN_Models import RNN_Complex, RNN_Simple, CNN_Complex, CNN_Simple
 import plotly.graph_objects as go
 
 
@@ -338,7 +339,7 @@ def main():
     
     # Model building and training
     input_shape = X_train.shape[1:]
-    autoencoder = RNN_Simple(input_shape)
+    autoencoder = CNN_Simple(input_shape)
     
     print("Training autoencoder...")
     autoencoder.fit(X_train, X_train, epochs=50, batch_size=64, validation_split=0.1, verbose=1)

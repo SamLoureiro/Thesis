@@ -1,3 +1,11 @@
+'''
+Development Notes:
+
+- The model achieved the best results using STFT features, without MFCC. (When added the other methods the results were almost the same).
+- MFCC performed poorly in this case, even when joined with other pre-processing methods.
+
+'''
+
 import os
 import time
 import numpy as np
@@ -236,7 +244,7 @@ combined_features_normalized = scaler.fit_transform(combined_features_df)
 # Shuffle the data and labels
 combined_features_normalized, labels = shuffle(combined_features_normalized, labels, random_state=42)
 
-print(f"Preprocessing Time: {pre_proc_time:.2f} seconds")
+print(f"Preprocessing Time: {pre_proc_time:.3f} seconds")
 
 # Split data into training and test sets
 X_train, X_test, y_train, y_test = train_test_split(combined_features_normalized, labels, test_size=0.2, random_state=42)
