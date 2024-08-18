@@ -7,7 +7,7 @@ import config
 from sklearn.utils import shuffle
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import (precision_score, recall_score, f1_score, roc_auc_score, 
-                             confusion_matrix, accuracy_score)
+                             confusion_matrix, accuracy_score, roc_curve)
 from sklearn.model_selection import train_test_split
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
@@ -17,6 +17,7 @@ from keras.callbacks import Callback
 import matplotlib.pyplot as plt
 import seaborn as sns
 import PreProc_Function as ppf
+import plotly.graph_objects as go
 
 
 # Function to find the optimal threshold for reconstruction error
@@ -49,7 +50,7 @@ class LossHistory(Callback):
 
 
 # Improved autoencoder architecture
-def build_autoencoder_v2(input_dim):
+def Dense_AE(input_dim):
     input_layer = Input(shape=(input_dim,))
     
     # Encoder
@@ -76,7 +77,7 @@ def build_autoencoder_v2(input_dim):
     
     autoencoder = Model(input_layer, decoded)
     encoder = Model(input_layer, bottleneck)
-    autoencoder.compile(optimizer='adam', loss='mse')
+    autoencoder.compile(optimizer='adam', loss='msle')
     
     return autoencoder, encoder
 
@@ -110,6 +111,39 @@ def plot_reduced_data(X_reduced, y, y_pred=None, title="2D Map of Samples"):
     plt.legend(loc='best')
     plt.show()
 
+def plot_metrics_vs_threshold(thresholds, f1_scores_test, precisions_test, recalls_test, roc_aucs_test,
+                              f1_scores_train, precision_train, recalls_train, roc_aucs_train,
+                              optimal_threshold):
+    fig = go.Figure()
+
+    # Add traces for test metrics
+    fig.add_trace(go.Scatter(x=thresholds, y=f1_scores_test, mode='lines', name='F1 Score_Test'))
+    fig.add_trace(go.Scatter(x=thresholds, y=precisions_test, mode='lines', name='Precision_Test'))
+    fig.add_trace(go.Scatter(x=thresholds, y=recalls_test, mode='lines', name='Recall_Test'))
+    fig.add_trace(go.Scatter(x=thresholds, y=roc_aucs_test, mode='lines', name='ROC-AUC_Test'))
+
+    # Add traces for train metrics
+    fig.add_trace(go.Scatter(x=thresholds, y=f1_scores_train, mode='lines', name='F1 Score_Train'))
+    fig.add_trace(go.Scatter(x=thresholds, y=precision_train, mode='lines', name='Precision_Train'))
+    fig.add_trace(go.Scatter(x=thresholds, y=recalls_train, mode='lines', name='Recall_Train'))
+    fig.add_trace(go.Scatter(x=thresholds, y=roc_aucs_train, mode='lines', name='ROC-AUC_Train'))
+
+    # Add vertical line for optimal threshold
+    fig.add_vline(x=optimal_threshold, line=dict(color='red', width=2, dash='dash'),
+                  annotation_text='Optimal Threshold', annotation_position='top right')
+
+    # Update layout for better visualization
+    fig.update_layout(
+        title='Metrics vs. Threshold',
+        xaxis_title='Threshold',
+        yaxis_title='Score',
+        legend_title='Metric',
+        template='plotly_dark',
+        showlegend=True
+    )
+
+    # Show the figure
+    fig.show()
 
 # Define directories and file paths
 def define_directories():
@@ -209,7 +243,7 @@ X_train, X_test, y_train, y_test = train_test_split(combined_features_normalized
 
 # Build and train the autoencoder
 input_dim = X_train.shape[1]
-autoencoder, encoder = build_autoencoder_v2(input_dim)
+autoencoder, encoder = Dense_AE(input_dim)
 history = autoencoder.fit(X_train, X_train, epochs=50, batch_size=32, validation_split=0.1, verbose=1)
 
 # Evaluate the model
@@ -219,34 +253,34 @@ val_loss_value = history_dict['val_loss'][-1]
 
 # Reconstruction and threshold finding
 X_train_pred = autoencoder.predict(X_train)
+start_time = time.time()
 X_test_pred = autoencoder.predict(X_test)
+inference_time = time.time() - start_time
 
 train_reconstruction_error = np.mean(np.abs(X_train - X_train_pred), axis=1)
 test_reconstruction_error = np.mean(np.abs(X_test - X_test_pred), axis=1)
 
-optimal_threshold = find_optimal_threshold(train_reconstruction_error, y_train)
+# Calculate ROC curve
+fpr, tpr, thresholds = roc_curve(y_test, test_reconstruction_error)
+
+# Find the optimal threshold
+optimal_idx = np.argmax(tpr - fpr)  # This gives you the threshold with the maximum difference between TPR and FPR
+optimal_threshold = thresholds[optimal_idx]
+
+#optimal_threshold = find_optimal_threshold(train_reconstruction_error, y_train)
 
 y_test_pred = (test_reconstruction_error > optimal_threshold).astype(int)
 
 # Evaluation
 print("Evaluation:")
-print(f"Accuracy: {accuracy_score(y_test, y_test_pred)}")
-print(f"Precision: {precision_score(y_test, y_test_pred)}")
-print(f"Recall: {recall_score(y_test, y_test_pred)}")
-print(f"F1 Score: {f1_score(y_test, y_test_pred)}")
-print(f"AUC: {roc_auc_score(y_test, test_reconstruction_error)}")
-print(f"Optimal Threshold: {optimal_threshold}")
-
-
-##################################################
-#F1-Score Results:
-#STFT: 0.769   (0.775 AUC)
-#MFCC: Detect everything as anomaly, need another method to find the optimal threshold. However, the model is not better than STFT based on the Metrics vs. Threshold' figure 
-#FFT: Detect everything as anomaly, need another method to find the optimal threshold. However, the model is not better than STFT based on the Metrics vs. Threshold' figure 
-#SP (basics): Detect everything as anomaly, need another method to find the optimal threshold. However, the model is not better than STFT based on the Metrics vs. Threshold' figure 
-#SP + STFT: 0.777 (0.780 AUC)
-#SP+FFT+MDCC+STFT: Detect everything as anomaly, need another method to find the optimal threshold. However, the model is not better than STFT based on the Metrics vs. Threshold' figure 
-#SP+STFT+NR: 0.771
+print(f"Optimal Threshold: {optimal_threshold:.3f}")  
+print(f"Accuracy: {accuracy_score(y_test, y_test_pred):.3f}")
+print(f"Precision: {precision_score(y_test, y_test_pred):.3f}")
+print(f"Recall: {recall_score(y_test, y_test_pred):.3f}")
+print(f"F1 Score: {f1_score(y_test, y_test_pred):.3f}")
+print(f"AUC: {roc_auc_score(y_test, test_reconstruction_error):.3f}")
+print(f"Average inference time per sample: {(inference_time / len(X_test)) * 1000:.3f} ms")
+print(f"Average processing time per sample: {(pre_proc_time / len(combined_features_df)*1000):.3f} ms")
 
 # Count the number of good and damaged bearings in the test set
 unique, counts = np.unique(y_test, return_counts=True)
@@ -296,19 +330,7 @@ for threshold in thresholds:
     recalls_train.append(recall_score(y_train, y_train_pred))
     roc_aucs_train.append(roc_auc_score(y_train, train_reconstruction_error))
 
-plt.figure(figsize=(12, 8))
-plt.plot(thresholds, f1_scores_test, label='F1 Score_Test')
-plt.plot(thresholds, precisions_test, label='Precision_Test')
-plt.plot(thresholds, recalls_test, label='Recall_Test')
-plt.plot(thresholds, roc_aucs_test, label='ROC-AUC_Test')
-plt.plot(thresholds, f1_scores_train, label='F1 Score_Train')
-plt.plot(thresholds, precision_train, label='Precision_Train')
-plt.plot(thresholds, recalls_train, label='Recall_Train')
-plt.plot(thresholds, roc_aucs_train, label='ROC-AUC_Train')
-
-plt.xlabel('Threshold')
-plt.ylabel('Score')
-plt.title('Metrics vs. Threshold')
-plt.legend()
-plt.grid(True)
-plt.show()
+# Plot metrics vs threshold
+plot_metrics_vs_threshold(thresholds, f1_scores_test, precisions_test, recalls_test, roc_aucs_test,
+                        f1_scores_train, precision_train, recalls_train, roc_aucs_train,
+                        optimal_threshold)

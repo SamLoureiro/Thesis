@@ -1,3 +1,12 @@
+'''
+
+Notas de desenvolvimento:
+
+- Aumentar a sample rate do acelerómetro para permitir mais features de áudio apenas aumentou a comlexidade do modelo e não melhorou a performance (o RNN_Complex não conseguiu treinar por falta de RAM)
+- A precisão dos vários modelos é a mais penalizada
+
+'''
+
 import os
 import time
 import numpy as np
@@ -5,6 +14,7 @@ import pandas as pd
 import librosa
 import matplotlib.pyplot as plt
 import seaborn as sns
+from scipy import interpolate
 from scipy.signal.windows import hann
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import (precision_score, recall_score, f1_score, roc_auc_score, 
@@ -135,32 +145,33 @@ def load_files(directory, file_extension):
         key=sort_key
     )
 
-def stft(audio_file, n_fft=2048, hop_length=512, num_samples=50, mfcc = True, stft = True):
-    """Compute the Short-Time Fourier Transform (STFT) and apply a moving average with standard deviation."""
+def proc_audio(audio_file, n_fft=2048, hop_length=512, num_samples=100, mfcc=True, stft=True):
+    """Compute the Short-Time Fourier Transform (STFT), Mel-Frequency Cepstral Coefficients (MFCC), and resample accelerometer data."""
     audio, sr = librosa.load(audio_file, sr=192000)
     stft_matrix = librosa.stft(audio, n_fft=n_fft, hop_length=hop_length)
     magnitude = np.abs(stft_matrix)
+    #print("STFT Magnitude Shape: ", magnitude.shape)
     if stft:
         avg_magnitude, std_magnitude = apply_moving_average(magnitude, num_samples)
+    
     if mfcc:
-        
         # Mel spectrogram       
-        mel_spectrogram = librosa.feature.melspectrogram(y=audio, sr=sr, n_fft=2048, n_mels=50, fmin=500, fmax=85000, window = hann(2048), power=2.0)
+        mel_spectrogram = librosa.feature.melspectrogram(y=audio, sr=sr, n_fft=n_fft, n_mels=50, fmin=500, fmax=85000, window=librosa.filters.get_window('hann', n_fft), power=2.0)
         
         # Convert to dB scale
         mel_spectrogram = librosa.power_to_db(mel_spectrogram, ref=np.max)
 
         # MFCCs
         mfccs = librosa.feature.mfcc(S=mel_spectrogram, n_mfcc=40, n_mels=106, fmin=500, fmax=85000)
-        #print(mfccs.shape)
+        #print("MFCC Magnitude Shape: ", mfccs.shape)
         avg_magnitude_mfcc, std_magnitude_mfcc = apply_moving_average(mfccs, num_samples)
+    
+    
+    # Print shapes for debugging
     #print("Shapes: ", avg_magnitude.shape, std_magnitude.shape, avg_magnitude_mfcc.shape, std_magnitude_mfcc.shape)
     
-    # avg_magnitude: (num_freq_bins, num_time_frames) = (1025, 50)
-    # std_magnitude: (num_freq_bins, num_time_frames) = (1025, 50)
-    # avg_magnitude_mfcc: (num_mfcc, num_time_frames) = (40, 50)
-    # std_magnitude_mfcc: (num_mfcc, num_time_frames) = (40, 50)
     return avg_magnitude, std_magnitude, avg_magnitude_mfcc, std_magnitude_mfcc
+
 
 
 def apply_moving_average(magnitude, target_frames):
@@ -187,13 +198,39 @@ def apply_moving_average(magnitude, target_frames):
     
     return averaged_magnitude, std_dev_magnitude
 
-def extract_raw_accel_features(csv_file_path):
-    """Extract features from accelerometer data CSV files."""
+
+def extract_raw_accel_features(csv_file_path, target_frames=100):
+    """Extract features from accelerometer data CSV files and resample to match target frames."""
     columns = ['timestamp', 'accX_l', 'accY_l', 'accZ_l', 'gyrX_l', 'gyrY_l', 'gyrZ_l', 
                'accX_r', 'accY_r', 'accZ_r', 'gyrX_r', 'gyrY_r', 'gyrZ_r']
     df = pd.read_csv(csv_file_path, usecols=columns)
-    return df.to_numpy()
+    accel_data = df.to_numpy()
+    
+    # Extract the features
+    num_samples, num_features = accel_data.shape
 
+    # Determine the resampling ratio
+    original_frames = num_samples
+    if original_frames == target_frames:
+        resampled_data = accel_data  # No need to resample if lengths are already equal
+    else:
+        # Create time axis for original and target data
+        original_time = np.linspace(0, 1, original_frames)
+        target_time = np.linspace(0, 1, target_frames)
+
+        # Initialize the resampled data array
+        resampled_data = np.zeros((target_frames, num_features))
+
+        # Resample each feature individually
+        for feature_idx in range(num_features):
+            feature_data = accel_data[:, feature_idx]
+            interpolator = interpolate.interp1d(original_time, feature_data, kind='linear', fill_value='extrapolate')
+            resampled_data[:, feature_idx] = interpolator(target_time)
+    
+    # Round the resampled data to two decimal places
+    resampled_data = np.round(resampled_data, 2)
+    
+    return resampled_data
 
 def find_optimal_threshold(reconstruction_error, y_true):
     """Find the optimal threshold for reconstruction error."""
@@ -248,7 +285,7 @@ def preprocess_data():
     start_time_pre_proc = time.time()
     
     for audio_file, accel_file in zip(regular_audio, regular_accel):
-        avg_magnitude, std_magnitude, avg_mfcc, std_mfcc = stft(audio_file)
+        avg_magnitude, std_magnitude, avg_mfcc, std_mfcc = proc_audio(audio_file)
         audio_features.append(avg_magnitude)
         audio_std_features.append(std_magnitude)
         audio_mfcc_features.append(avg_mfcc)
@@ -257,7 +294,7 @@ def preprocess_data():
         labels.append(0)
     
     for audio_file, accel_file in zip(failures_audio, failures_accel):
-        avg_magnitude, std_magnitude, avg_mfcc, std_mfcc = stft(audio_file)
+        avg_magnitude, std_magnitude, avg_mfcc, std_mfcc = proc_audio(audio_file)
         audio_features.append(avg_magnitude)
         audio_std_features.append(std_magnitude)
         audio_mfcc_features.append(avg_mfcc)
@@ -266,6 +303,7 @@ def preprocess_data():
         labels.append(1)
     
     end_time_pre_proc = time.time()
+    
     
     audio_features = np.array(audio_features)
     audio_std_features = np.array(audio_std_features)
@@ -287,9 +325,9 @@ def preprocess_data():
     combined_features_reshaped = combined_features.reshape(-1, num_features)
     combined_features_normalized = scaler.fit_transform(combined_features_reshaped).reshape(num_samples, time_steps, num_features)
     
-    print("\nAverage Preprocessing Time per Sample: \n\n", (end_time_pre_proc - start_time_pre_proc) / len(labels))
+    print("\nAverage Preprocessing Time per Sample:", (end_time_pre_proc - start_time_pre_proc) / len(labels))
     
-    print("\nCombined Features Shape:\n", combined_features_normalized.shape)
+    print("\nCombined Features Shape:", combined_features_normalized.shape)
     
     return train_test_split(combined_features_normalized, labels, test_size=0.2, random_state=42)
 
@@ -300,7 +338,7 @@ def main():
     
     # Model building and training
     input_shape = X_train.shape[1:]
-    autoencoder = CNN_Simple(input_shape)
+    autoencoder = RNN_Simple(input_shape)
     
     print("Training autoencoder...")
     autoencoder.fit(X_train, X_train, epochs=50, batch_size=64, validation_split=0.1, verbose=1)
