@@ -10,9 +10,7 @@ import os
 import time
 import numpy as np
 import pandas as pd
-import librosa
 import config
-from sklearn.utils import shuffle
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import (precision_score, recall_score, f1_score, roc_auc_score, 
                              confusion_matrix, accuracy_score, roc_curve)
@@ -240,9 +238,6 @@ combined_features_df, labels, pre_proc_time = load_and_extract_features(director
 # Normalize features
 scaler = StandardScaler()
 combined_features_normalized = scaler.fit_transform(combined_features_df)
-
-# Shuffle the data and labels
-combined_features_normalized, labels = shuffle(combined_features_normalized, labels, random_state=42)
 
 print(f"Preprocessing Time: {pre_proc_time:.3f} seconds")
 
