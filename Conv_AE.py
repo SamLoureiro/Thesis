@@ -24,7 +24,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
 import tensorflow as tf
-from UN_CNN_Models import RNN_Complex, RNN_Simple, CNN_Complex, CNN_Simple
+from UN_CNN_Models import RNN_Complex, RNN_Simple, CNN_Simple, DEEP_CNN, Attention_AE, Denoising_AE
 import plotly.graph_objects as go
 
 
@@ -146,7 +146,7 @@ def load_files(directory, file_extension):
         key=sort_key
     )
 
-def proc_audio(audio_file, n_fft=2048, hop_length=512, num_samples=100, mfcc=True, stft=True):
+def proc_audio(audio_file, n_fft=2048, hop_length=512, num_samples=50, mfcc=True, stft=True):
     """Compute the Short-Time Fourier Transform (STFT), Mel-Frequency Cepstral Coefficients (MFCC), and resample accelerometer data."""
     audio, sr = librosa.load(audio_file, sr=192000)
     stft_matrix = librosa.stft(audio, n_fft=n_fft, hop_length=hop_length)
@@ -200,7 +200,7 @@ def apply_moving_average(magnitude, target_frames):
     return averaged_magnitude, std_dev_magnitude
 
 
-def extract_raw_accel_features(csv_file_path, target_frames=100):
+def extract_raw_accel_features(csv_file_path, target_frames=50):
     """Extract features from accelerometer data CSV files and resample to match target frames."""
     columns = ['timestamp', 'accX_l', 'accY_l', 'accZ_l', 'gyrX_l', 'gyrY_l', 'gyrZ_l', 
                'accX_r', 'accY_r', 'accZ_r', 'gyrX_r', 'gyrY_r', 'gyrZ_r']
@@ -328,8 +328,8 @@ def preprocess_data():
     
     print("\nAverage Preprocessing Time per Sample:", (end_time_pre_proc - start_time_pre_proc) / len(labels))
     
-    print("\nCombined Features Shape:", combined_features_normalized.shape)
-    
+    print("\nCombined Features Shape:", combined_features_normalized.shape)    
+   
     return train_test_split(combined_features_normalized, labels, test_size=0.2, random_state=42)
 
 
@@ -337,12 +337,21 @@ def main():
     # Data preprocessing
     X_train, X_test, y_train, y_test = preprocess_data()
     
-    # Model building and training
-    input_shape = X_train.shape[1:]
-    autoencoder = CNN_Simple(input_shape)
+    # X_train and X_test shape: (number of samples, 50, 2143) - where:
+
+    # n - number of samples
+    # 50 - timestamps of each sample
+    # 2143 - features per timestamp
     
-    print("Training autoencoder...")
-    autoencoder.fit(X_train, X_train, epochs=50, batch_size=64, validation_split=0.1, verbose=1)
+    # input_shape = (50, 2143)
+    
+    # Model building and training
+
+    input_shape = X_train.shape[1:]
+    autoencoder = ConvLSTM_AE(input_shape)
+    
+    #print("Training autoencoder...")
+    autoencoder.fit(X_train, X_train, epochs=50, batch_size=32, validation_split=0.1, verbose=1)
     
     # Reconstruction and threshold finding
     X_train_pred = autoencoder.predict(X_train)
@@ -371,8 +380,7 @@ def main():
     print(f"AUC: {roc_auc_score(y_test, test_reconstruction_error):.3f}")
     print(f"Average inference time per sample: {(inference_time / len(X_test)) * 1000:.3f} ms")
     
-    
-    
+        
     # Count the number of good and damaged bearings in the test set
     unique, counts = np.unique(y_test, return_counts=True)
     label_counts = dict(zip(unique, counts))

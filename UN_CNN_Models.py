@@ -1,8 +1,29 @@
-from keras.layers import (Input, Dense, BatchNormalization, Dropout, LSTM, 
-                          RepeatVector, TimeDistributed, Bidirectional, Input, Conv1D, MaxPooling1D, UpSampling1D, Cropping1D, ZeroPadding1D, Add, GlobalMaxPooling1D, Flatten, Reshape)
-from keras.regularizers import L2
-from keras.models import Model
+import tensorflow as tf
 
+from keras.layers import (Input, Dense, BatchNormalization, Dropout, LSTM, 
+                          RepeatVector, TimeDistributed, Bidirectional, Input, Conv1D, MaxPooling1D, UpSampling1D, Cropping1D, ZeroPadding1D, Add, GlobalMaxPooling1D, 
+                          Flatten, Reshape, ConvLSTM1D, MultiHeadAttention, LayerNormalization, Lambda)
+from keras.regularizers import L2, l1_l2
+from keras.models import Model, Sequential
+from keras.losses import mean_squared_error, mean_squared_logarithmic_error, mean_absolute_error
+import numpy as np
+
+mse = mean_squared_error
+msle = mean_squared_logarithmic_error
+mae = mean_absolute_error
+
+
+'''
+
+Models to test in the main file
+
+# Input Shape of each saple: (50, 2143) - where:
+
+# 50 - timestamps of each sample
+# 2143 - features per timestamp
+
+
+'''
 
 def RNN_Complex(input_shape):
     """Build and compile an RNN autoencoder model."""
@@ -77,7 +98,7 @@ def RNN_Simple(input_shape):
     return autoencoder
 
 
-def CNN_Complex(input_shape):
+def DEEP_CNN(input_shape):
     inputs = Input(shape=input_shape)
     
     # Encoder
@@ -183,4 +204,120 @@ def CNN_Simple(input_shape):
     autoencoder.compile(optimizer='adam', loss='msle')
     
     return autoencoder
+
+
+def Attention_AE(input_shape):
+    inputs = Input(shape=input_shape)
     
+    # Encoder
+    x = Bidirectional(LSTM(64, return_sequences=True, kernel_regularizer=L2(1e-4)))(inputs)
+    x = BatchNormalization()(x)
+    x = Dropout(0.3)(x)
+    
+    # Multi-Head Self-Attention
+    attention = MultiHeadAttention(num_heads=4, key_dim=64)(x, x)
+    x = Add()([x, attention])  # Residual Connection
+    x = LayerNormalization()(x)
+    
+    x = Bidirectional(LSTM(32, return_sequences=False, kernel_regularizer=L2(1e-4)))(x)
+    x = Dropout(0.3)(x)
+    
+    # Bottleneck
+    bottleneck = Dense(16, activation='relu', kernel_regularizer=L2(1e-4))(x)
+    bottleneck = RepeatVector(input_shape[0])(bottleneck)
+    
+    # Decoder
+    x = LSTM(32, return_sequences=True, kernel_regularizer=L2(1e-4))(bottleneck)
+    x = BatchNormalization()(x)
+    x = Dropout(0.3)(x)
+    
+    x = LSTM(64, return_sequences=True, kernel_regularizer=L2(1e-4))(x)
+    x = BatchNormalization()(x)
+    x = Dropout(0.3)(x)
+    
+    # Multi-Head Self-Attention
+    attention = MultiHeadAttention(num_heads=4, key_dim=64)(x, x)
+    x = Add()([x, attention])  # Residual Connection
+    x = LayerNormalization()(x)
+    
+    decoded = TimeDistributed(Dense(input_shape[1], activation='sigmoid'))(x)
+    
+    autoencoder = Model(inputs, decoded)
+    autoencoder.compile(optimizer='adam', loss='msle')
+    
+    return autoencoder
+
+
+'''
+The following AE model can be applied to any of the above models to add noise to the input data
+'''
+def Denoising_AE(input_shape, noise_factor=0.5):
+    inputs = Input(shape=input_shape)
+    noisy_inputs = Lambda(lambda x: x + noise_factor * tf.random.normal(tf.shape(x)))(inputs)
+    
+    # Encoder
+    x = Bidirectional(LSTM(64, activation='relu', return_sequences=True))(noisy_inputs)
+    x = Dropout(0.2)(x)
+    x = BatchNormalization()(x)
+    
+    encoded = LSTM(32, activation='relu', return_sequences=False)(x)
+    encoded = Dropout(0.2)(encoded)
+    encoded = BatchNormalization()(encoded)
+    
+    # Bottleneck
+    bottleneck = Dense(16, activation='relu')(encoded)
+    bottleneck = RepeatVector(input_shape[0])(bottleneck)
+    
+    # Decoder
+    x = LSTM(32, activation='relu', return_sequences=True)(bottleneck)
+    x = Dropout(0.2)(x)
+    x = BatchNormalization()(x)
+    
+    x = LSTM(64, activation='relu', return_sequences=True)(x)
+    x = Dropout(0.2)(x)
+    x = BatchNormalization()(x)
+    
+    decoded = LSTM(128, activation='relu', return_sequences=True)(x)
+    outputs = TimeDistributed(Dense(input_shape[1]))(decoded)
+    
+    autoencoder = Model(inputs, outputs)
+    autoencoder.compile(optimizer='adam', loss='msle')
+    
+    return autoencoder
+
+
+# I don't know why, but the model below is not working
+
+#def ConvLSTM_AE(input_shape):
+    inputs = Input(shape=(input_shape[0], input_shape[1], 1))
+    
+    # Encoder
+    x = ConvLSTM1D(64, 3, activation='relu', padding='same', return_sequences=True)(inputs)
+    x = BatchNormalization()(x)
+    x = ConvLSTM1D(32, 3, activation='relu', padding='same', return_sequences=True)(x)
+    x = BatchNormalization()(x)
+    
+    # Bottleneck
+    encoded = ConvLSTM1D(16, 3, activation='relu', padding='same', return_sequences=False)(x)    
+    bottleneck = Dense(16, activation='relu')(encoded)
+    
+    # Decoder
+    x = RepeatVector(input_shape[0])(bottleneck)
+    x = ConvLSTM1D(32, 3, activation='relu', padding='same', return_sequences=True)(x)
+    x = BatchNormalization()(x)
+    x = ConvLSTM1D(64, 3, activation='relu', padding='same', return_sequences=True)(x)
+    x = BatchNormalization()(x)
+    
+    # Adjust for mismatch in temporal dimension
+    crop_amount = (x.shape[1] - input_shape[0])
+    if crop_amount > 0:
+        x = Cropping1D(cropping=(crop_amount // 2, crop_amount - crop_amount // 2))(x)  # Crop symmetrically
+    elif crop_amount < 0:
+        x = ZeroPadding1D(padding=(-crop_amount // 2, -crop_amount + (-crop_amount // 2)))(x)  # Pad symmetrically
+    
+    decoded = ConvLSTM1D(1, 3, activation='sigmoid', padding='same', return_sequences=True)(x)
+    
+    autoencoder = Model(inputs, decoded)
+    autoencoder.compile(optimizer='adam', loss='msle')
+    
+    return autoencoder
