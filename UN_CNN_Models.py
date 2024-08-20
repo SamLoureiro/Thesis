@@ -22,6 +22,7 @@ Models to test in the main file
 # 50 - timestamps of each sample
 # 2143 - features per timestamp
 
+CNN Simple gave the best results so far, even tough they are not good enough compared to the Dense Model with the pre-processing from Supervised Learning
 
 '''
 
