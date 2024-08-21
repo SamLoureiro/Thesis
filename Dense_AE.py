@@ -1,7 +1,8 @@
 '''
 Development Notes:
 
-- The model achieved the best results using STFT features, without MFCC. (When added the other methods the results were almost the same).
+- This script used a datashape of number of samples x number of features, unlike tge Conv_AE script that used a datashape of number of samples x number of timesteps x number of features.
+- The model achieved the best results using STFT features, without MFCC - (When added the other methods the results were almost the same).
 - MFCC performed poorly in this case, even when joined with other pre-processing methods.
 
 '''
@@ -15,52 +16,21 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import (precision_score, recall_score, f1_score, roc_auc_score, 
                              confusion_matrix, accuracy_score, roc_curve)
 from sklearn.model_selection import train_test_split
-from sklearn.decomposition import PCA
-from sklearn.manifold import TSNE
-from keras.layers import LeakyReLU, Input, Dense, BatchNormalization, Dropout
+import tensorflow as tf
+from keras.layers import Input, Dense, BatchNormalization, Dropout, Lambda
 from keras.models import Model
-from keras.callbacks import Callback
 import matplotlib.pyplot as plt
 import seaborn as sns
 import PreProc_Function as ppf
-import plotly.graph_objects as go
-
-
-# Function to find the optimal threshold for reconstruction error
-def find_optimal_threshold(reconstruction_error, y_true):
-    thresholds = np.linspace(min(reconstruction_error), max(reconstruction_error), 100)
-    best_threshold = 0
-    best_f1 = 0
-    for threshold in thresholds:
-        y_pred = (reconstruction_error > threshold).astype(int)
-        f1 = f1_score(y_true, y_pred)
-        if f1 > best_f1:
-            best_f1 = f1
-            best_threshold = threshold
-    return best_threshold
-
-
-# Custom callback to track loss and accuracy
-class LossHistory(Callback):
-    def on_train_begin(self, logs={}):
-        self.losses = []
-        self.val_losses = []
-        self.val_accuracies = []
-    
-    def on_epoch_end(self, epoch, logs={}):
-        self.losses.append(logs.get('loss'))
-        self.val_losses.append(logs.get('val_loss'))
-        val_accuracy = 1 - np.mean(np.abs(self.validation_data[0] - self.validation_data[1]) > 0.5)
-        self.val_accuracies.append(val_accuracy)
-        print(f'\nEpoch {epoch+1} - loss: {logs.get("loss")} - val_loss: {logs.get("val_loss")} - val_accuracy: {val_accuracy}')
+from AE_Aux_Func import reduce_dimensions, plot_reduced_data, plot_metrics_vs_threshold
 
 
 # Improved autoencoder architecture
 def Dense_AE(input_dim):
     input_layer = Input(shape=(input_dim,))
-    
+    noisy_inputs = Lambda(lambda x: x + 0.5 * tf.random.normal(tf.shape(x)))(input_layer)
     # Encoder
-    encoded = Dense(256, activation='relu')(input_layer)
+    encoded = Dense(256, activation='relu')(noisy_inputs)
     encoded = BatchNormalization()(encoded)
     encoded = Dropout(0.3)(encoded)
     encoded = Dense(128, activation='relu')(encoded)
@@ -87,69 +57,6 @@ def Dense_AE(input_dim):
     
     return autoencoder, encoder
 
-
-# Dimensionality reduction function
-def reduce_dimensions(X, method='PCA'):
-    if method == 'PCA':
-        reducer = PCA(n_components=2)
-    elif method == 't-SNE':
-        reducer = TSNE(n_components=2, random_state=42)
-    else:
-        raise ValueError("Method should be 'PCA' or 't-SNE'")
-    
-    X_reduced = reducer.fit_transform(X)
-    return X_reduced
-
-
-# Function to plot the reduced data
-def plot_reduced_data(X_reduced, y, y_pred=None, title="2D Map of Samples"):
-    plt.figure(figsize=(10, 8))
-    scatter = plt.scatter(X_reduced[:, 0], X_reduced[:, 1], 
-                          c=y, cmap='coolwarm', alpha=0.6, edgecolors='w', s=50, label='True Label')
-    if y_pred is not None:
-        y_pred = np.ravel(y_pred)
-        plt.scatter(X_reduced[y_pred == 1, 0], X_reduced[y_pred == 1, 1], 
-                    c='red', marker='x', s=100, label='Detected Anomalies')
-    plt.colorbar(scatter, label='True Label')
-    plt.xlabel('Component 1')
-    plt.ylabel('Component 2')
-    plt.title(title)
-    plt.legend(loc='best')
-    plt.show()
-
-def plot_metrics_vs_threshold(thresholds, f1_scores_test, precisions_test, recalls_test, roc_aucs_test,
-                              f1_scores_train, precision_train, recalls_train, roc_aucs_train,
-                              optimal_threshold):
-    fig = go.Figure()
-
-    # Add traces for test metrics
-    fig.add_trace(go.Scatter(x=thresholds, y=f1_scores_test, mode='lines', name='F1 Score_Test'))
-    fig.add_trace(go.Scatter(x=thresholds, y=precisions_test, mode='lines', name='Precision_Test'))
-    fig.add_trace(go.Scatter(x=thresholds, y=recalls_test, mode='lines', name='Recall_Test'))
-    fig.add_trace(go.Scatter(x=thresholds, y=roc_aucs_test, mode='lines', name='ROC-AUC_Test'))
-
-    # Add traces for train metrics
-    fig.add_trace(go.Scatter(x=thresholds, y=f1_scores_train, mode='lines', name='F1 Score_Train'))
-    fig.add_trace(go.Scatter(x=thresholds, y=precision_train, mode='lines', name='Precision_Train'))
-    fig.add_trace(go.Scatter(x=thresholds, y=recalls_train, mode='lines', name='Recall_Train'))
-    fig.add_trace(go.Scatter(x=thresholds, y=roc_aucs_train, mode='lines', name='ROC-AUC_Train'))
-
-    # Add vertical line for optimal threshold
-    fig.add_vline(x=optimal_threshold, line=dict(color='red', width=2, dash='dash'),
-                  annotation_text='Optimal Threshold', annotation_position='top right')
-
-    # Update layout for better visualization
-    fig.update_layout(
-        title='Metrics vs. Threshold',
-        xaxis_title='Threshold',
-        yaxis_title='Score',
-        legend_title='Metric',
-        template='plotly_dark',
-        showlegend=True
-    )
-
-    # Show the figure
-    fig.show()
 
 # Define directories and file paths
 def define_directories():
@@ -238,6 +145,8 @@ combined_features_df, labels, pre_proc_time = load_and_extract_features(director
 # Normalize features
 scaler = StandardScaler()
 combined_features_normalized = scaler.fit_transform(combined_features_df)
+
+print(f"Combined Features Shape: {combined_features_normalized.shape}")
 
 print(f"Preprocessing Time: {pre_proc_time:.3f} seconds")
 
