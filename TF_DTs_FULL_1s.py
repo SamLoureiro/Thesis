@@ -148,11 +148,10 @@ combined_features_df = pd.DataFrame(combined_features)
 scaler = StandardScaler()
 combined_features_normalized = scaler.fit_transform(combined_features_df)
 
+print(f"Combined Features Shape: {combined_features_normalized.shape}")
+
 # Convert labels to numpy array
 y = np.array(labels)
-
-# Shuffle the data and labels
-combined_features_normalized, y = shuffle(combined_features_normalized, y, random_state=42)
 
 # Train classifier
 X_train, X_test, y_train, y_test = train_test_split(combined_features_normalized, y, test_size=0.2, random_state=42)
@@ -180,8 +179,6 @@ elif (config.model['RF']):
     )
     Folder = 'RF'
     model = 'rf'
-
-#adamw_optimizer = tf.keras.optimizers.AdamW(learning_rate=0.001, weight_decay=1e-4)
 
 history = clf.fit(X_train, y_train, validation_data=(X_test, y_test), return_dict=True)
 history_dict = history.history

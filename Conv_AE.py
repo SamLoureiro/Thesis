@@ -1,11 +1,11 @@
 '''
+Developer Notes:
 
-Notas de desenvolvimento:
-
-- Aumentar a sample rate do acelerómetro para permitir mais features de áudio apenas aumentou a comlexidade do modelo e não melhorou a performance (o RNN_Complex não conseguiu treinar por falta de RAM)
-- A precisão dos vários modelos é a mais penalizada
-- O modelo Dense_AE com o pré-processamento igual aos métodos supervisionados é o que apresenta melhor performance
-
+- This script used a datashape of number of samples x number of timesteps x number of features, unlike tge Dense_AE script that used a datashape of number of samples x number of features.
+- Due to the specific nature of the data shape, the preprocessing was different from the Dense_AE script.
+- Increasing the accelerometer's sample rate through interpolation to allow for more audio features only increased the model's comlexity and did not improve performance (RNN_Complex was unable to train due to lack of RAM).
+- The precision of the various models is the most penalized metric.
+- The Dense_AE model with the same pre-processing as the supervised methods is the one with the best performance.
 '''
 
 import os
@@ -26,94 +26,9 @@ from sklearn.manifold import TSNE
 import tensorflow as tf
 from UN_CNN_Models import RNN_Complex, RNN_Simple, CNN_Simple, DEEP_CNN, Attention_AE, Denoising_AE
 import plotly.graph_objects as go
+from AE_Aux_Func import reduce_dimensions, plot_reduced_data, plot_metrics_vs_threshold
 
 
-# Function to find the optimal threshold for reconstruction error
-def find_optimal_threshold(reconstruction_error, y_true):
-    thresholds = np.linspace(min(reconstruction_error), max(reconstruction_error), 100)
-    best_threshold = 0
-    best_f1 = 0
-    for threshold in thresholds:
-        y_pred = (reconstruction_error > threshold).astype(int)
-        f1 = f1_score(y_true, y_pred)
-        if f1 > best_f1:
-            best_f1 = f1
-            best_threshold = threshold
-    return best_threshold
-
-def reduce_dimensions(X, method='PCA'):
-    if method == 'PCA':
-        # Flatten the 3D array to 2D
-        num_samples, time_steps, num_features = X.shape
-        X_flattened = X.reshape(num_samples, time_steps * num_features)
-        
-        reducer = PCA(n_components=2)
-        X_reduced = reducer.fit_transform(X_flattened)
-        
-    elif method == 't-SNE':
-        # Flatten the 3D array to 2D
-        num_samples, time_steps, num_features = X.shape
-        X_flattened = X.reshape(num_samples, time_steps * num_features)
-        
-        reducer = TSNE(n_components=2, random_state=42)
-        X_reduced = reducer.fit_transform(X_flattened)
-        
-    else:
-        raise ValueError("Method should be 'PCA' or 't-SNE'")
-    
-    return X_reduced
-
-
-
-# Function to plot the reduced data
-def plot_reduced_data(X_reduced, y, y_pred=None, title="2D Map of Samples"):
-    plt.figure(figsize=(10, 8))
-    scatter = plt.scatter(X_reduced[:, 0], X_reduced[:, 1], 
-                          c=y, cmap='coolwarm', alpha=0.6, edgecolors='w', s=50, label='True Label')
-    if y_pred is not None:
-        y_pred = np.ravel(y_pred)
-        plt.scatter(X_reduced[y_pred == 1, 0], X_reduced[y_pred == 1, 1], 
-                    c='red', marker='x', s=100, label='Detected Anomalies')
-    plt.colorbar(scatter, label='True Label')
-    plt.xlabel('Component 1')
-    plt.ylabel('Component 2')
-    plt.title(title)
-    plt.legend(loc='best')
-    plt.show()
-
-def plot_metrics_vs_threshold(thresholds, f1_scores_test, precisions_test, recalls_test, roc_aucs_test,
-                              f1_scores_train, precision_train, recalls_train, roc_aucs_train,
-                              optimal_threshold):
-    fig = go.Figure()
-
-    # Add traces for test metrics
-    fig.add_trace(go.Scatter(x=thresholds, y=f1_scores_test, mode='lines', name='F1 Score_Test'))
-    fig.add_trace(go.Scatter(x=thresholds, y=precisions_test, mode='lines', name='Precision_Test'))
-    fig.add_trace(go.Scatter(x=thresholds, y=recalls_test, mode='lines', name='Recall_Test'))
-    fig.add_trace(go.Scatter(x=thresholds, y=roc_aucs_test, mode='lines', name='ROC-AUC_Test'))
-
-    # Add traces for train metrics
-    fig.add_trace(go.Scatter(x=thresholds, y=f1_scores_train, mode='lines', name='F1 Score_Train'))
-    fig.add_trace(go.Scatter(x=thresholds, y=precision_train, mode='lines', name='Precision_Train'))
-    fig.add_trace(go.Scatter(x=thresholds, y=recalls_train, mode='lines', name='Recall_Train'))
-    fig.add_trace(go.Scatter(x=thresholds, y=roc_aucs_train, mode='lines', name='ROC-AUC_Train'))
-
-    # Add vertical line for optimal threshold
-    fig.add_vline(x=optimal_threshold, line=dict(color='red', width=2, dash='dash'),
-                  annotation_text='Optimal Threshold', annotation_position='top right')
-
-    # Update layout for better visualization
-    fig.update_layout(
-        title='Metrics vs. Threshold',
-        xaxis_title='Threshold',
-        yaxis_title='Score',
-        legend_title='Metric',
-        template='plotly_dark',
-        showlegend=True
-    )
-
-    # Show the figure
-    fig.show()
 
 # File paths
 current_dir = os.getcwd()
@@ -233,35 +148,6 @@ def extract_raw_accel_features(csv_file_path, target_frames=50):
     
     return resampled_data
 
-def find_optimal_threshold(reconstruction_error, y_true):
-    """Find the optimal threshold for reconstruction error."""
-    thresholds = np.linspace(min(reconstruction_error), max(reconstruction_error), 100)
-    best_threshold = 0
-    best_f1 = 0
-    for threshold in thresholds:
-        y_pred = (reconstruction_error > threshold).astype(int)
-        f1 = f1_score(y_true, y_pred)
-        if f1 > best_f1:
-            best_f1 = f1
-            best_threshold = threshold
-    return best_threshold
-
-def find_optimal_threshold_cost_based(reconstruction_error, y_true, cost_fp=2, cost_fn=0.5):
-    thresholds = np.linspace(min(reconstruction_error), max(reconstruction_error), 100)
-    best_threshold = 0
-    best_cost = float('inf')
-    
-    for threshold in thresholds:
-        y_pred = (reconstruction_error > threshold).astype(int)
-        fp = np.sum((y_pred == 1) & (y_true == 0))
-        fn = np.sum((y_pred == 0) & (y_true == 1))
-        cost = cost_fp * fp + cost_fn * fn
-        if cost < best_cost:
-            best_cost = cost
-            best_threshold = threshold
-    
-    return best_threshold
-
 
 def preprocess_data():
     """Preprocess data for training and testing."""
@@ -348,7 +234,7 @@ def main():
     # Model building and training
 
     input_shape = X_train.shape[1:]
-    autoencoder = ConvLSTM_AE(input_shape)
+    autoencoder = CNN_Simple(input_shape)
     
     #print("Training autoencoder...")
     autoencoder.fit(X_train, X_train, epochs=50, batch_size=32, validation_split=0.1, verbose=1)

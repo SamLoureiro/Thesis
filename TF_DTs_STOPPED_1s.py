@@ -125,9 +125,6 @@ combined_features_normalized = scaler.fit_transform(combined_features_df)
 # Convert labels to numpy array
 y = np.array(labels)
 
-# Shuffle the data and labels
-combined_features_normalized, y = shuffle(combined_features_normalized, y, random_state=42)
-
 # Train classifier
 X_train, X_test, y_train, y_test = train_test_split(combined_features_normalized, y, test_size=0.2, random_state=42)
 

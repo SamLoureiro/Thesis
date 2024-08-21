@@ -1,7 +1,7 @@
 '''
-Development Notes:
+Developer Notes:
 
-- This script used a datashape of number of samples x number of features, unlike tge Conv_AE script that used a datashape of number of samples x number of timesteps x number of features.
+- This script used a data shape of number of samples x number of features, unlike tge Conv_AE script that used a datashape of number of samples x number of timesteps x number of features.
 - The model achieved the best results using STFT features, without MFCC - (When added the other methods the results were almost the same).
 - MFCC performed poorly in this case, even when joined with other pre-processing methods.
 
@@ -105,9 +105,13 @@ def load_and_extract_features(directories):
     # Process regular bearings
     for audio_file, accel_file in zip(
         sorted([os.path.join(directories['good_bearing']['audio_s'], file) for file in os.listdir(directories['good_bearing']['audio_s']) if file.endswith('.WAV')], key=sort_key) +
-        sorted([os.path.join(directories['good_bearing']['audio_m'], file) for file in os.listdir(directories['good_bearing']['audio_m']) if file.endswith('.WAV')], key=sort_key),
+        sorted([os.path.join(directories['good_bearing']['audio_m'], file) for file in os.listdir(directories['good_bearing']['audio_m']) if file.endswith('.WAV')], key=sort_key) +
+        sorted([os.path.join(directories['smooth_floor']['audio'], file) for file in os.listdir(directories['smooth_floor']['audio']) if file.endswith('.WAV')], key=sort_key) +
+        sorted([os.path.join(directories['tiled_floor']['audio'], file) for file in os.listdir(directories['tiled_floor']['audio']) if file.endswith('.WAV')], key=sort_key),
         sorted([os.path.join(directories['good_bearing']['acel_s'], file) for file in os.listdir(directories['good_bearing']['acel_s']) if file.endswith('.csv')], key=sort_key) +
-        sorted([os.path.join(directories['good_bearing']['acel_m'], file) for file in os.listdir(directories['good_bearing']['acel_m']) if file.endswith('.csv')], key=sort_key)
+        sorted([os.path.join(directories['good_bearing']['acel_m'], file) for file in os.listdir(directories['good_bearing']['acel_m']) if file.endswith('.csv')], key=sort_key) +
+        sorted([os.path.join(directories['smooth_floor']['acel'], file) for file in os.listdir(directories['smooth_floor']['acel']) if file.endswith('.csv')], key=sort_key) +
+        sorted([os.path.join(directories['tiled_floor']['acel'], file) for file in os.listdir(directories['tiled_floor']['acel']) if file.endswith('.csv')], key=sort_key)
     ):
         audio_features = ppf.extract_audio_features(audio_file, directories['noise_profile'], config.preprocessing_options)
         accel_features = ppf.extract_accel_features(accel_file)
@@ -146,7 +150,9 @@ combined_features_df, labels, pre_proc_time = load_and_extract_features(director
 scaler = StandardScaler()
 combined_features_normalized = scaler.fit_transform(combined_features_df)
 
-print(f"Combined Features Shape: {combined_features_normalized.shape}")
+#print(f"Combined Features Shape: {combined_features_normalized.shape}")
+
+# The data shape is (number of samples x number of features)
 
 print(f"Preprocessing Time: {pre_proc_time:.3f} seconds")
 
@@ -175,11 +181,9 @@ test_reconstruction_error = np.mean(np.abs(X_test - X_test_pred), axis=1)
 # Calculate ROC curve
 fpr, tpr, thresholds = roc_curve(y_test, test_reconstruction_error)
 
-# Find the optimal threshold
-optimal_idx = np.argmax(tpr - fpr)  # This gives you the threshold with the maximum difference between TPR and FPR
+# Find the optimal threshold 
+optimal_idx = np.argmax(tpr - fpr)           # This gives the threshold with the maximum difference between TPR and FPR
 optimal_threshold = thresholds[optimal_idx]
-
-#optimal_threshold = find_optimal_threshold(train_reconstruction_error, y_train)
 
 y_test_pred = (test_reconstruction_error > optimal_threshold).astype(int)
 
