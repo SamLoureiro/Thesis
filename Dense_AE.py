@@ -17,45 +17,54 @@ from sklearn.metrics import (precision_score, recall_score, f1_score, roc_auc_sc
                              confusion_matrix, accuracy_score, roc_curve)
 from sklearn.model_selection import train_test_split
 import tensorflow as tf
+from keras.callbacks import EarlyStopping
 from keras.layers import Input, Dense, BatchNormalization, Dropout, Lambda
 from keras.models import Model
+from keras_tuner import HyperModel, RandomSearch, HyperParameters
 import matplotlib.pyplot as plt
 import seaborn as sns
 import PreProc_Function as ppf
-from AE_Aux_Func import reduce_dimensions, plot_reduced_data, plot_metrics_vs_threshold
+from AE_Aux_Func import reduce_dimensions, plot_reduced_data, plot_metrics_vs_threshold, find_optimal_threshold_f1
 
 
-# Improved autoencoder architecture
-def Dense_AE(input_dim):
-    input_layer = Input(shape=(input_dim,))
-    noisy_inputs = Lambda(lambda x: x + 0.5 * tf.random.normal(tf.shape(x)))(input_layer)
-    # Encoder
-    encoded = Dense(256, activation='relu')(noisy_inputs)
-    encoded = BatchNormalization()(encoded)
-    encoded = Dropout(0.3)(encoded)
-    encoded = Dense(128, activation='relu')(encoded)
-    encoded = BatchNormalization()(encoded)
-    encoded = Dropout(0.3)(encoded)
-    encoded = Dense(64, activation='relu')(encoded)
-    
-    # Bottleneck
-    bottleneck = Dense(32, activation='relu')(encoded)
-    
-    # Decoder
-    decoded = Dense(64, activation='relu')(bottleneck)
-    decoded = BatchNormalization()(decoded)
-    decoded = Dropout(0.3)(decoded)
-    decoded = Dense(128, activation='relu')(decoded)
-    decoded = BatchNormalization()(decoded)
-    decoded = Dropout(0.3)(decoded)
-    decoded = Dense(256, activation='relu')(decoded)
-    decoded = Dense(input_dim, activation='sigmoid')(decoded)
-    
-    autoencoder = Model(input_layer, decoded)
-    encoder = Model(input_layer, bottleneck)
-    autoencoder.compile(optimizer='adam', loss='msle')
-    
-    return autoencoder, encoder
+
+class AutoencoderHyperModel(HyperModel):
+    def __init__(self, input_dim):
+        self.input_dim = input_dim
+
+    def build(self, hp):
+        input_layer = Input(shape=(self.input_dim,))
+        noise_factor = hp.Float('noise_factor', 0.1, 0.5, step=0.1)
+        noisy_inputs = Lambda(lambda x: x + noise_factor * tf.random.normal(tf.shape(x)))(input_layer)
+        
+        # Encoder
+        encoded = Dense(hp.Int('units_1', 128, 512, step=128), activation='relu')(noisy_inputs)
+        encoded = BatchNormalization()(encoded)
+        encoded = Dropout(hp.Float('dropout_1', 0.1, 0.5, step=0.1))(encoded)
+        encoded = Dense(hp.Int('units_2', 64, 256, step=64), activation='relu')(encoded)
+        encoded = BatchNormalization()(encoded)
+        encoded = Dropout(hp.Float('dropout_2', 0.1, 0.5, step=0.1))(encoded)
+        encoded = Dense(hp.Int('units_3', 32, 128, step=32), activation='relu')(encoded)
+        
+        # Bottleneck
+        bottleneck = Dense(hp.Int('bottleneck_units', 16, 64, step=16), activation='relu')(encoded)
+        
+        # Decoder
+        decoded = Dense(hp.Int('units_3', 32, 128, step=32), activation='relu')(bottleneck)
+        decoded = BatchNormalization()(decoded)
+        decoded = Dropout(hp.Float('dropout_3', 0.1, 0.5, step=0.1))(decoded)
+        decoded = Dense(hp.Int('units_2', 64, 256, step=64), activation='relu')(decoded)
+        decoded = BatchNormalization()(decoded)
+        decoded = Dropout(hp.Float('dropout_4', 0.1, 0.5, step=0.1))(decoded)
+        decoded = Dense(hp.Int('units_1', 128, 512, step=128), activation='relu')(decoded)
+        decoded = Dense(self.input_dim, activation='sigmoid')(decoded)
+        
+        autoencoder = Model(input_layer, decoded)
+        autoencoder.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=hp.Float('learning_rate', 1e-4, 1e-2, sampling='log')),
+                            loss='msle', 
+                            metrics=[tf.keras.metrics.AUC(name='auc')])
+        
+        return autoencoder
 
 
 # Define directories and file paths
@@ -161,13 +170,32 @@ X_train, X_test, y_train, y_test = train_test_split(combined_features_normalized
 
 # Build and train the autoencoder
 input_dim = X_train.shape[1]
-autoencoder, encoder = Dense_AE(input_dim)
-history = autoencoder.fit(X_train, X_train, epochs=50, batch_size=32, validation_split=0.1, verbose=1)
 
-# Evaluate the model
-history_dict = history.history
-loss_value = history_dict['loss'][-1]
-val_loss_value = history_dict['val_loss'][-1]
+tuner = RandomSearch(
+    AutoencoderHyperModel(input_dim),
+    objective='val_auc',
+    max_trials=20,  # Number of different hyperparameter combinations to try
+    executions_per_trial=2,  # Number of models to train with each combination (averaged)
+    directory='hyper_tuning',
+    project_name='bearing_autoencoder_msle_auc'
+)
+
+# Define early stopping
+early_stopping = EarlyStopping(monitor='val_loss', patience=5, restore_best_weights=True)
+
+tuner.search(X_train, X_train,
+             epochs=50,
+             batch_size=32,
+             validation_split=0.1,
+             callbacks=[early_stopping],
+             verbose=1)
+
+
+# Retrieve the best model and hyperparameters
+autoencoder = tuner.get_best_models(num_models=1)[0]
+best_hyperparameters = tuner.get_best_hyperparameters(num_trials=1)[0]
+
+print(f"Best hyperparameters: {best_hyperparameters.values}")
 
 # Reconstruction and threshold finding
 X_train_pred = autoencoder.predict(X_train)
@@ -179,11 +207,12 @@ train_reconstruction_error = np.mean(np.abs(X_train - X_train_pred), axis=1)
 test_reconstruction_error = np.mean(np.abs(X_test - X_test_pred), axis=1)
 
 # Calculate ROC curve
-fpr, tpr, thresholds = roc_curve(y_test, test_reconstruction_error)
+'''fpr, tpr, thresholds = roc_curve(y_test, test_reconstruction_error)
 
 # Find the optimal threshold 
 optimal_idx = np.argmax(tpr - fpr)           # This gives the threshold with the maximum difference between TPR and FPR
-optimal_threshold = thresholds[optimal_idx]
+optimal_threshold = thresholds[optimal_idx]'''
+optimal_threshold = find_optimal_threshold_f1(test_reconstruction_error, y_test) 
 
 y_test_pred = (test_reconstruction_error > optimal_threshold).astype(int)
 

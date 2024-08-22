@@ -75,7 +75,7 @@ def plot_metrics_vs_threshold(thresholds, f1_scores_test, precisions_test, recal
     
     
 # Function to find the optimal threshold for reconstruction error
-def find_optimal_threshold(reconstruction_error, y_true):
+def find_optimal_threshold_f1(reconstruction_error, y_true):
     thresholds = np.linspace(min(reconstruction_error), max(reconstruction_error), 100)
     best_threshold = 0
     best_f1 = 0
