@@ -4,6 +4,7 @@ Developer Notes:
 - This script used a data shape of number of samples x number of features, unlike tge Conv_AE script that used a datashape of number of samples x number of timesteps x number of features.
 - The model achieved the best results using STFT features, without MFCC - (When added the other methods the results were almost the same).
 - MFCC performed poorly in this case, even when joined with other pre-processing methods.
+- Increasing the batch size from 32 to 128 did not improve the model performance.
 
 '''
 
@@ -159,7 +160,7 @@ def load_and_extract_features(directories):
     n_samples_damaged = len(combined_features) - n_samples_healthy
     print(f"Number of samples (Damaged Bearing): {n_samples_damaged}")
 
-    return pd.DataFrame(combined_features), np.array(labels), end_time_pre_proc - start_time_pre_proc
+    return pd.DataFrame(combined_features), np.array(labels), end_time_pre_proc - start_time_pre_proc, methods_string
 
 
 def remove_unused_trials(keras_tuner_dir, project_name, best_trial):
@@ -183,7 +184,7 @@ def remove_unused_trials(keras_tuner_dir, project_name, best_trial):
 
 # Main execution
 directories = define_directories()
-combined_features_df, labels, pre_proc_time = load_and_extract_features(directories)
+combined_features_df, labels, pre_proc_time, pre_proc_string = load_and_extract_features(directories)
 
 # Normalize features
 scaler = StandardScaler()
@@ -201,14 +202,15 @@ X_train, X_test, y_train, y_test = train_test_split(combined_features_normalized
 # Build and train the autoencoder
 input_dim = X_train.shape[1]
 
+# Epochs and batch size
+epochs = 100
+batch_size = 32
+
 # Define directories
 current_dir = os.getcwd()
 tuner_dir = os.path.join(current_dir, 'keras_tuner_dir')
-project_name = 'AE_BayesianOptimization_32bs_stft'
-project_path = os.path.join(tuner_dir, project_name)
+project_name = 'AE_BayesianOptimization_' + str(batch_size) + 'bs_' + pre_proc_string
 
-#if(os.path.exists(project_path)):
-    
 
 # Define the BayesianOptimization tuner
 tuner = BayesianOptimization(
@@ -223,7 +225,7 @@ tuner = BayesianOptimization(
 # Early stopping setup
 early_stopping = EarlyStopping(monitor='val_loss', patience=5, restore_best_weights=True, verbose=1)
 
-# Get the best trial
+# If the tuner directory exists, try to load the best trial, otherwise perform Bayesian optimization and save and load the best trial
 try:
     # Load the best trial
     best_trial = tuner.oracle.get_best_trials(1)[0]
@@ -238,7 +240,7 @@ try:
     autoencoder = AutoencoderHyperModel(input_dim).build(hyperparameters)
 except IndexError:
     # Perform Bayesian optimization
-    tuner.search(X_train, X_train, epochs=100, batch_size=32, validation_split=0.1, callbacks=[early_stopping], verbose=1)
+    tuner.search(X_train, X_train, epochs=epochs, batch_size=batch_size, validation_split=0.1, callbacks=[early_stopping], verbose=1)
     
     best_trial = tuner.oracle.get_best_trials(1)[0]
     print(f"Best trial: {best_trial.trial_id}")
