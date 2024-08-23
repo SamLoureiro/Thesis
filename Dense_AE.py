@@ -20,12 +20,11 @@ import tensorflow as tf
 from keras.callbacks import EarlyStopping
 from keras.layers import Input, Dense, BatchNormalization, Dropout, Lambda
 from keras.models import Model
-from keras_tuner import HyperModel, RandomSearch, HyperParameters
+from keras_tuner import HyperModel, RandomSearch, HyperParameters, BayesianOptimization
 import matplotlib.pyplot as plt
 import seaborn as sns
 import PreProc_Function as ppf
 from AE_Aux_Func import reduce_dimensions, plot_reduced_data, plot_metrics_vs_threshold, find_optimal_threshold_f1
-
 
 
 class AutoencoderHyperModel(HyperModel):
@@ -33,37 +32,45 @@ class AutoencoderHyperModel(HyperModel):
         self.input_dim = input_dim
 
     def build(self, hp):
+        noise_factor = hp.Float('noise_factor', min_value=0.1, max_value=0.5, step=0.05)
+        units_1 = hp.Int('units_1', min_value=128, max_value=512, step=32)
+        dropout_1 = hp.Float('dropout_1', min_value=0.1, max_value=0.5, step=0.05)
+        units_2 = hp.Int('units_2', min_value=64, max_value=256, step=32)
+        dropout_2 = hp.Float('dropout_2', min_value=0.1, max_value=0.5, step=0.05)
+        units_3 = hp.Int('units_3', min_value=32, max_value=128, step=32)
+        bottleneck_units = hp.Int('bottleneck_units', min_value=16, max_value=64, step=8)
+        dropout_3 = hp.Float('dropout_3', min_value=0.1, max_value=0.5, step=0.05)
+        dropout_4 = hp.Float('dropout_4', min_value=0.1, max_value=0.5, step=0.05)
+        learning_rate = hp.Float('learning_rate', min_value=1e-4, max_value=1e-2, sampling='log')
+
         input_layer = Input(shape=(self.input_dim,))
-        noise_factor = hp.Float('noise_factor', 0.1, 0.5, step=0.1)
         noisy_inputs = Lambda(lambda x: x + noise_factor * tf.random.normal(tf.shape(x)))(input_layer)
         
         # Encoder
-        encoded = Dense(hp.Int('units_1', 128, 512, step=128), activation='relu')(noisy_inputs)
+        encoded = Dense(units_1, activation='relu')(noisy_inputs)
         encoded = BatchNormalization()(encoded)
-        encoded = Dropout(hp.Float('dropout_1', 0.1, 0.5, step=0.1))(encoded)
-        encoded = Dense(hp.Int('units_2', 64, 256, step=64), activation='relu')(encoded)
+        encoded = Dropout(dropout_1)(encoded)
+        encoded = Dense(units_2, activation='relu')(encoded)
         encoded = BatchNormalization()(encoded)
-        encoded = Dropout(hp.Float('dropout_2', 0.1, 0.5, step=0.1))(encoded)
-        encoded = Dense(hp.Int('units_3', 32, 128, step=32), activation='relu')(encoded)
+        encoded = Dropout(dropout_2)(encoded)
+        encoded = Dense(units_3, activation='relu')(encoded)
         
         # Bottleneck
-        bottleneck = Dense(hp.Int('bottleneck_units', 16, 64, step=16), activation='relu')(encoded)
+        bottleneck = Dense(bottleneck_units, activation='relu')(encoded)
         
         # Decoder
-        decoded = Dense(hp.Int('units_3', 32, 128, step=32), activation='relu')(bottleneck)
+        decoded = Dense(units_3, activation='relu')(bottleneck)
         decoded = BatchNormalization()(decoded)
-        decoded = Dropout(hp.Float('dropout_3', 0.1, 0.5, step=0.1))(decoded)
-        decoded = Dense(hp.Int('units_2', 64, 256, step=64), activation='relu')(decoded)
+        decoded = Dropout(dropout_3)(decoded)
+        decoded = Dense(units_2, activation='relu')(decoded)
         decoded = BatchNormalization()(decoded)
-        decoded = Dropout(hp.Float('dropout_4', 0.1, 0.5, step=0.1))(decoded)
-        decoded = Dense(hp.Int('units_1', 128, 512, step=128), activation='relu')(decoded)
+        decoded = Dropout(dropout_4)(decoded)
+        decoded = Dense(units_1, activation='relu')(decoded)
         decoded = Dense(self.input_dim, activation='sigmoid')(decoded)
         
         autoencoder = Model(input_layer, decoded)
-        autoencoder.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=hp.Float('learning_rate', 1e-4, 1e-2, sampling='log')),
-                            loss='msle', 
-                            metrics=[tf.keras.metrics.AUC(name='auc')])
-        
+        autoencoder.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=learning_rate),
+                            loss='mse')        
         return autoencoder
 
 
@@ -171,31 +178,33 @@ X_train, X_test, y_train, y_test = train_test_split(combined_features_normalized
 # Build and train the autoencoder
 input_dim = X_train.shape[1]
 
-tuner = RandomSearch(
-    AutoencoderHyperModel(input_dim),
-    objective='val_auc',
-    max_trials=20,  # Number of different hyperparameter combinations to try
-    executions_per_trial=2,  # Number of models to train with each combination (averaged)
-    directory='hyper_tuning',
-    project_name='bearing_autoencoder_msle_auc'
+# Define the BayesianOptimization tuner
+tuner = BayesianOptimization(
+    hypermodel=AutoencoderHyperModel(input_dim),
+    objective='val_loss',
+    max_trials=20,
+    executions_per_trial=1,
+    directory='keras_tuner_dir',
+    project_name='AE_BayesianOptimization_mse_early_stopping'
 )
 
-# Define early stopping
-early_stopping = EarlyStopping(monitor='val_loss', patience=5, restore_best_weights=True)
+# Early stopping setup
+early_stopping = EarlyStopping(monitor='val_loss', patience=5, restore_best_weights=True, verbose=1)
 
-tuner.search(X_train, X_train,
-             epochs=50,
-             batch_size=32,
-             validation_split=0.1,
-             callbacks=[early_stopping],
-             verbose=1)
+# Perform Bayesian optimization
+tuner.search(X_train, X_train, epochs=50, batch_size=32, validation_split=0.1, callbacks=[early_stopping], verbose=1)
 
+# Get the best trial
+best_trial = tuner.oracle.get_best_trials(1)[0]
+print(f"Best trial: {best_trial.trial_id}")
+print(f"Best trial value: {best_trial.score}")
 
-# Retrieve the best model and hyperparameters
-autoencoder = tuner.get_best_models(num_models=1)[0]
-best_hyperparameters = tuner.get_best_hyperparameters(num_trials=1)[0]
+# Best hyperparameters
+hyperparameters = best_trial.hyperparameters
+print(f"Best trial hyperparameters: {hyperparameters.values}")
 
-print(f"Best hyperparameters: {best_hyperparameters.values}")
+# Build the best model using the best hyperparameters
+autoencoder = AutoencoderHyperModel(input_dim).build(hyperparameters)
 
 # Reconstruction and threshold finding
 X_train_pred = autoencoder.predict(X_train)
@@ -207,12 +216,7 @@ train_reconstruction_error = np.mean(np.abs(X_train - X_train_pred), axis=1)
 test_reconstruction_error = np.mean(np.abs(X_test - X_test_pred), axis=1)
 
 # Calculate ROC curve
-'''fpr, tpr, thresholds = roc_curve(y_test, test_reconstruction_error)
-
-# Find the optimal threshold 
-optimal_idx = np.argmax(tpr - fpr)           # This gives the threshold with the maximum difference between TPR and FPR
-optimal_threshold = thresholds[optimal_idx]'''
-optimal_threshold = find_optimal_threshold_f1(test_reconstruction_error, y_test) 
+optimal_threshold = find_optimal_threshold_f1(test_reconstruction_error, y_test)
 
 y_test_pred = (test_reconstruction_error > optimal_threshold).astype(int)
 
@@ -225,7 +229,7 @@ print(f"Recall: {recall_score(y_test, y_test_pred):.3f}")
 print(f"F1 Score: {f1_score(y_test, y_test_pred):.3f}")
 print(f"AUC: {roc_auc_score(y_test, test_reconstruction_error):.3f}")
 print(f"Average inference time per sample: {(inference_time / len(X_test)) * 1000:.3f} ms")
-print(f"Average processing time per sample: {(pre_proc_time / len(combined_features_df)*1000):.3f} ms")
+print(f"Average processing time per sample: {(pre_proc_time / len(combined_features_df) * 1000):.3f} ms")
 
 # Count the number of good and damaged bearings in the test set
 unique, counts = np.unique(y_test, return_counts=True)
@@ -256,26 +260,29 @@ thresholds = np.linspace(min(test_reconstruction_error), max(test_reconstruction
 f1_scores_test = []
 precisions_test = []
 recalls_test = []
+accuracy_test = []
 roc_aucs_test = []
-f1_scores_train= []
+f1_scores_train = []
+accuracy_train = []
 precision_train = []
 recalls_train = []
 roc_aucs_train = []
 
-
 for threshold in thresholds:
     y_test_pred = (test_reconstruction_error > threshold).astype(int)
     f1_scores_test.append(f1_score(y_test, y_test_pred))
+    accuracy_test.append(accuracy_score(y_test, y_test_pred))
     precisions_test.append(precision_score(y_test, y_test_pred, zero_division=0))
     recalls_test.append(recall_score(y_test, y_test_pred))
     roc_aucs_test.append(roc_auc_score(y_test, test_reconstruction_error))
     y_train_pred = (train_reconstruction_error > threshold).astype(int)
     f1_scores_train.append(f1_score(y_train, y_train_pred))
+    accuracy_train.append(accuracy_score(y_train, y_train_pred))
     precision_train.append(precision_score(y_train, y_train_pred, zero_division=0))
     recalls_train.append(recall_score(y_train, y_train_pred))
     roc_aucs_train.append(roc_auc_score(y_train, train_reconstruction_error))
 
 # Plot metrics vs threshold
-plot_metrics_vs_threshold(thresholds, f1_scores_test, precisions_test, recalls_test, roc_aucs_test,
-                        f1_scores_train, precision_train, recalls_train, roc_aucs_train,
+plot_metrics_vs_threshold(thresholds, f1_scores_test, accuracy_test, precisions_test, recalls_test, roc_aucs_test,
+                        f1_scores_train, accuracy_train, precision_train, recalls_train, roc_aucs_train,
                         optimal_threshold)

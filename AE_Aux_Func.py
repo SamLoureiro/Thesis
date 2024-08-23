@@ -39,19 +39,21 @@ def plot_reduced_data(X_reduced, y, y_pred=None, title="2D Map of Samples"):
     plt.legend(loc='best')
     plt.show()
 
-def plot_metrics_vs_threshold(thresholds, f1_scores_test, precisions_test, recalls_test, roc_aucs_test,
-                              f1_scores_train, precision_train, recalls_train, roc_aucs_train,
+def plot_metrics_vs_threshold(thresholds, f1_scores_test, accuracy_test ,precisions_test, recalls_test, roc_aucs_test,
+                              f1_scores_train, accuracy_train ,precision_train, recalls_train, roc_aucs_train,
                               optimal_threshold):
     fig = go.Figure()
 
     # Add traces for test metrics
     fig.add_trace(go.Scatter(x=thresholds, y=f1_scores_test, mode='lines', name='F1 Score_Test'))
+    fig.add_trace(go.Scatter(x=thresholds, y=accuracy_test, mode='lines', name='Accuracy_Test'))
     fig.add_trace(go.Scatter(x=thresholds, y=precisions_test, mode='lines', name='Precision_Test'))
     fig.add_trace(go.Scatter(x=thresholds, y=recalls_test, mode='lines', name='Recall_Test'))
     fig.add_trace(go.Scatter(x=thresholds, y=roc_aucs_test, mode='lines', name='ROC-AUC_Test'))
 
     # Add traces for train metrics
     fig.add_trace(go.Scatter(x=thresholds, y=f1_scores_train, mode='lines', name='F1 Score_Train'))
+    fig.add_trace(go.Scatter(x=thresholds, y=accuracy_train, mode='lines', name='Accuracy_Train'))
     fig.add_trace(go.Scatter(x=thresholds, y=precision_train, mode='lines', name='Precision_Train'))
     fig.add_trace(go.Scatter(x=thresholds, y=recalls_train, mode='lines', name='Recall_Train'))
     fig.add_trace(go.Scatter(x=thresholds, y=roc_aucs_train, mode='lines', name='ROC-AUC_Train'))
