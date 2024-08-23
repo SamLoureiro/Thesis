@@ -8,6 +8,7 @@ Developer Notes:
 '''
 
 import os
+import shutil
 import time
 import numpy as np
 import pandas as pd
@@ -32,6 +33,9 @@ class AutoencoderHyperModel(HyperModel):
         self.input_dim = input_dim
 
     def build(self, hp):
+        if not isinstance(hp, HyperParameters):
+            raise ValueError("Expected 'hp' to be an instance of 'HyperParameters'.")
+
         noise_factor = hp.Float('noise_factor', min_value=0.1, max_value=0.5, step=0.05)
         units_1 = hp.Int('units_1', min_value=128, max_value=512, step=32)
         dropout_1 = hp.Float('dropout_1', min_value=0.1, max_value=0.5, step=0.05)
@@ -158,6 +162,25 @@ def load_and_extract_features(directories):
     return pd.DataFrame(combined_features), np.array(labels), end_time_pre_proc - start_time_pre_proc
 
 
+def remove_unused_trials(keras_tuner_dir, project_name, best_trial):
+    """Removes all trials except for the best one."""
+    trials_dir = os.path.join(keras_tuner_dir, project_name)
+    
+    for subdir in os.listdir(trials_dir):
+        trial_dir = os.path.join(trials_dir, subdir)
+        
+        # Only consider files/directories with an "_" in the name
+        if "_" in subdir:
+            trial_id = subdir.split('_')[-1]
+            if trial_id != best_trial.trial_id:
+                print(f"Deleting trial {trial_id}")
+                shutil.rmtree(trial_dir)
+            else:
+                print(f"Keeping best trial {trial_id}")
+        else:
+            print(f"Skipping {subdir}")
+
+
 # Main execution
 directories = define_directories()
 combined_features_df, labels, pre_proc_time = load_and_extract_features(directories)
@@ -178,33 +201,59 @@ X_train, X_test, y_train, y_test = train_test_split(combined_features_normalized
 # Build and train the autoencoder
 input_dim = X_train.shape[1]
 
+# Define directories
+current_dir = os.getcwd()
+tuner_dir = os.path.join(current_dir, 'keras_tuner_dir')
+project_name = 'AE_BayesianOptimization_32bs_stft'
+project_path = os.path.join(tuner_dir, project_name)
+
+#if(os.path.exists(project_path)):
+    
+
 # Define the BayesianOptimization tuner
 tuner = BayesianOptimization(
     hypermodel=AutoencoderHyperModel(input_dim),
     objective='val_loss',
     max_trials=20,
     executions_per_trial=1,
-    directory='keras_tuner_dir',
-    project_name='AE_BayesianOptimization_mse_early_stopping'
+    directory=tuner_dir,
+    project_name=project_name
 )
 
 # Early stopping setup
 early_stopping = EarlyStopping(monitor='val_loss', patience=5, restore_best_weights=True, verbose=1)
 
-# Perform Bayesian optimization
-tuner.search(X_train, X_train, epochs=50, batch_size=32, validation_split=0.1, callbacks=[early_stopping], verbose=1)
-
 # Get the best trial
-best_trial = tuner.oracle.get_best_trials(1)[0]
-print(f"Best trial: {best_trial.trial_id}")
-print(f"Best trial value: {best_trial.score}")
+try:
+    # Load the best trial
+    best_trial = tuner.oracle.get_best_trials(1)[0]
+    print(f"Best trial: {best_trial.trial_id}")
+    print(f"Best trial value: {best_trial.score}")
 
-# Best hyperparameters
-hyperparameters = best_trial.hyperparameters
-print(f"Best trial hyperparameters: {hyperparameters.values}")
+    # Best hyperparameters
+    hyperparameters = best_trial.hyperparameters
+    print(f"Best trial hyperparameters: {hyperparameters.values}")
 
-# Build the best model using the best hyperparameters
-autoencoder = AutoencoderHyperModel(input_dim).build(hyperparameters)
+    # Build the best model using the best hyperparameters
+    autoencoder = AutoencoderHyperModel(input_dim).build(hyperparameters)
+except IndexError:
+    # Perform Bayesian optimization
+    tuner.search(X_train, X_train, epochs=100, batch_size=32, validation_split=0.1, callbacks=[early_stopping], verbose=1)
+    
+    best_trial = tuner.oracle.get_best_trials(1)[0]
+    print(f"Best trial: {best_trial.trial_id}")
+    print(f"Best trial value: {best_trial.score}")
+
+    # Best hyperparameters
+    hyperparameters = best_trial.hyperparameters
+    print(f"Best trial hyperparameters: {hyperparameters.values}")
+
+    # Build the best model using the best hyperparameters
+    autoencoder = AutoencoderHyperModel(input_dim).build(hyperparameters)
+    pass
+except AttributeError as e:
+    print(f"Error while accessing best trial attributes: {e}")
+
 
 # Reconstruction and threshold finding
 X_train_pred = autoencoder.predict(X_train)
@@ -286,3 +335,6 @@ for threshold in thresholds:
 plot_metrics_vs_threshold(thresholds, f1_scores_test, accuracy_test, precisions_test, recalls_test, roc_aucs_test,
                         f1_scores_train, accuracy_train, precision_train, recalls_train, roc_aucs_train,
                         optimal_threshold)
+
+
+remove_unused_trials(tuner_dir, project_name, best_trial)
