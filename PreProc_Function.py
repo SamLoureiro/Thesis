@@ -37,6 +37,7 @@ def extract_audio_features(file_path, noise_profile, options):
             features[f'fft_{config.fft_params["fmin"]}_{config.fft_params["fmax"]}_{i}'] = value
 
     if options['mfcc']:
+        # Pre-emphasis filter
         audio_data = np.append(y[0], y[1:] - 0.97 * y[:-1])
         # Short-Time Fourier Transform (STFT)
         stft = librosa.stft(audio_data, n_fft=config.mfcc_params['n_fft'], hop_length=config.mfcc_params['hop_length'])

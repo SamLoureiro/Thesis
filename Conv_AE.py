@@ -21,11 +21,9 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import (precision_score, recall_score, f1_score, roc_auc_score, 
                              confusion_matrix, accuracy_score, roc_curve)
 from sklearn.model_selection import train_test_split
-from sklearn.decomposition import PCA
-from sklearn.manifold import TSNE
 import tensorflow as tf
+from keras.callbacks import EarlyStopping
 from UN_CNN_Models import RNN_Complex, RNN_Simple, CNN_Simple, DEEP_CNN, Attention_AE, Denoising_AE
-import plotly.graph_objects as go
 from AE_Aux_Func import reduce_dimensions, plot_reduced_data, plot_metrics_vs_threshold
 
 
@@ -61,14 +59,19 @@ def load_files(directory, file_extension):
         key=sort_key
     )
 
-def proc_audio(audio_file, n_fft=2048, hop_length=512, num_samples=50, mfcc=True, stft=True):
+def proc_audio(audio_file, n_fft=1024, hop_length=256, num_samples=50, mfcc=True, stft=True):
     """Compute the Short-Time Fourier Transform (STFT), Mel-Frequency Cepstral Coefficients (MFCC), and resample accelerometer data."""
     audio, sr = librosa.load(audio_file, sr=192000)
     stft_matrix = librosa.stft(audio, n_fft=n_fft, hop_length=hop_length)
     magnitude = np.abs(stft_matrix)
     #print("STFT Magnitude Shape: ", magnitude.shape)
+    avg_magnitude, std_magnitude, avg_magnitude_mfcc, std_magnitude_mfcc = None, None, None, None
+    
     if stft:
+        #print("STFT Magnitude Shape: ", magnitude.shape)
         avg_magnitude, std_magnitude = apply_moving_average(magnitude, num_samples)
+        #print("Average Magnitude Shape: ", avg_magnitude.shape)
+        #print("Standard Deviation Magnitude Shape: ", std_magnitude.shape)
     
     if mfcc:
         # Mel spectrogram       
@@ -81,6 +84,8 @@ def proc_audio(audio_file, n_fft=2048, hop_length=512, num_samples=50, mfcc=True
         mfccs = librosa.feature.mfcc(S=mel_spectrogram, n_mfcc=40, n_mels=106, fmin=500, fmax=85000)
         #print("MFCC Magnitude Shape: ", mfccs.shape)
         avg_magnitude_mfcc, std_magnitude_mfcc = apply_moving_average(mfccs, num_samples)
+        #print("Average MFCC Magnitude Shape: ", avg_magnitude_mfcc.shape)
+        #print("Standard Deviation MFCC Magnitude Shape: ", std_magnitude_mfcc.shape)
     
     
     # Print shapes for debugging
@@ -91,7 +96,7 @@ def proc_audio(audio_file, n_fft=2048, hop_length=512, num_samples=50, mfcc=True
 
 
 def apply_moving_average(magnitude, target_frames):
-    """Apply moving average and compute standard deviation to the STFT magnitude matrix."""
+    """Apply moving average and compute standard deviation to the STFT magnitude matrix."""    
     num_freq_bins, num_time_frames = magnitude.shape
     if num_time_frames <= target_frames:
         raise ValueError("Number of time frames in magnitude is less than or equal to target_frames.")
@@ -149,7 +154,7 @@ def extract_raw_accel_features(csv_file_path, target_frames=50):
     return resampled_data
 
 
-def preprocess_data():
+def preprocess_data(stft=True, mfcc=True, target_frames=50):
     """Preprocess data for training and testing."""
     # Load data
     regular_audio = (load_files(file_paths['good_bearing_audio_s'], '.WAV') +
@@ -167,45 +172,77 @@ def preprocess_data():
                       load_files(file_paths['damaged_bearing_acel_m'], '.csv'))
     
     # Process data
-    audio_features, audio_std_features, audio_mfcc_features, audio_mfcc_std_features, accel_features, labels = [], [], [], [], [], []
+    audio_stft_avg_features, audio_stft_std_features, audio_mfcc_avg_features, audio_mfcc_std_features, accel_features, labels = [], [], [], [], [], []
     
     start_time_pre_proc = time.time()
     
-    for audio_file, accel_file in zip(regular_audio, regular_accel):
-        avg_magnitude, std_magnitude, avg_mfcc, std_mfcc = proc_audio(audio_file)
-        audio_features.append(avg_magnitude)
-        audio_std_features.append(std_magnitude)
-        audio_mfcc_features.append(avg_mfcc)
-        audio_mfcc_std_features.append(std_mfcc)
-        accel_features.append(extract_raw_accel_features(accel_file))
+    for audio_file, accel_file in zip(regular_audio, regular_accel):        
+        avg_magnitude, std_magnitude, avg_mfcc, std_mfcc = proc_audio(audio_file, stft=stft, mfcc=mfcc, num_samples=target_frames)
+        if stft and mfcc:            
+            audio_stft_avg_features.append(avg_magnitude)
+            audio_stft_std_features.append(std_magnitude)
+            audio_mfcc_avg_features.append(avg_mfcc)
+            audio_mfcc_std_features.append(std_mfcc)
+        elif stft:
+            audio_stft_avg_features.append(avg_magnitude)
+            audio_stft_std_features.append(std_magnitude)
+        elif mfcc:
+            audio_mfcc_avg_features.append(avg_mfcc)
+            audio_mfcc_std_features.append(std_mfcc)
+
+        accel_features.append(extract_raw_accel_features(accel_file, target_frames=target_frames))
         labels.append(0)
-    
+        
     for audio_file, accel_file in zip(failures_audio, failures_accel):
-        avg_magnitude, std_magnitude, avg_mfcc, std_mfcc = proc_audio(audio_file)
-        audio_features.append(avg_magnitude)
-        audio_std_features.append(std_magnitude)
-        audio_mfcc_features.append(avg_mfcc)
-        audio_mfcc_std_features.append(std_mfcc)
-        accel_features.append(extract_raw_accel_features(accel_file))
+        avg_magnitude, std_magnitude, avg_mfcc, std_mfcc = proc_audio(audio_file, stft=stft, mfcc=mfcc, num_samples=target_frames)
+        if stft and mfcc:
+            audio_stft_avg_features.append(avg_magnitude)
+            audio_stft_std_features.append(std_magnitude)
+            audio_mfcc_avg_features.append(avg_mfcc)
+            audio_mfcc_std_features.append(std_mfcc)
+        elif stft:
+            audio_stft_avg_features.append(avg_magnitude)
+            audio_stft_std_features.append(std_magnitude)
+        elif mfcc:
+            audio_mfcc_avg_features.append(avg_mfcc)
+            audio_mfcc_std_features.append(std_mfcc)
+        
+        accel_features.append(extract_raw_accel_features(accel_file, target_frames=target_frames))
         labels.append(1)
     
     end_time_pre_proc = time.time()
     
+    # Convert lists to numpy arrays and reshape
+    if stft and mfcc:
+        audio_stft_avg_features = np.array(audio_stft_avg_features)
+        audio_stft_std_features = np.array(audio_stft_std_features)
+        audio_mfcc_avg_features = np.array(audio_mfcc_avg_features)
+        audio_mfcc_std_features = np.array(audio_mfcc_std_features)
+        accel_features = np.array(accel_features)
+        audio_stft_avg_features_reshaped = audio_stft_avg_features.transpose(0, 2, 1)
+        audio_stft_std_features_reshaped = audio_stft_std_features.transpose(0, 2, 1)
+        audio_mfcc_avg_features_reshaped = audio_mfcc_avg_features.transpose(0, 2, 1)
+        audio_mfcc_std_features_reshaped = audio_mfcc_std_features.transpose(0, 2, 1)
+        combined_features = np.concatenate((accel_features, audio_stft_avg_features_reshaped, audio_stft_std_features_reshaped, audio_mfcc_avg_features_reshaped, audio_mfcc_std_features_reshaped), axis=2)
+    elif stft:
+        audio_stft_avg_features = np.array(audio_stft_avg_features)
+        audio_stft_std_features = np.array(audio_stft_std_features)
+        accel_features = np.array(accel_features)
+        audio_stft_avg_features_reshaped = audio_stft_avg_features.transpose(0, 2, 1)
+        audio_stft_std_features_reshaped = audio_stft_std_features.transpose(0, 2, 1)
+        combined_features = np.concatenate((accel_features, audio_stft_avg_features_reshaped, audio_stft_std_features_reshaped), axis=2)
+    elif mfcc:
+        audio_mfcc_avg_features = np.array(audio_mfcc_avg_features)
+        audio_mfcc_std_features = np.array(audio_mfcc_std_features)
+        accel_features = np.array(accel_features)
+        audio_mfcc_avg_features_reshaped = audio_mfcc_avg_features.transpose(0, 2, 1)
+        audio_mfcc_std_features_reshaped = audio_mfcc_std_features.transpose(0, 2, 1)
+        combined_features = np.concatenate((accel_features, audio_mfcc_avg_features_reshaped, audio_mfcc_std_features_reshaped), axis=2)
+    else:
+        accel_features = np.array(accel_features)
+        combined_features = np.concatenate((accel_features), axis=2)
     
-    audio_features = np.array(audio_features)
-    audio_std_features = np.array(audio_std_features)
-    audio_mfcc_features = np.array(audio_mfcc_features)
-    audio_mfcc_std_features = np.array(audio_mfcc_std_features)
-    accel_features = np.array(accel_features)
-    
-    # Reshape and combine features
-    audio_features_reshaped = audio_features.transpose(0, 2, 1)
-    audio_std_features_reshaped = audio_std_features.transpose(0, 2, 1)
-    audio_mfcc_features_reshaped = audio_mfcc_features.transpose(0, 2, 1)
-    audio_mfcc_std_features_reshaped = audio_mfcc_std_features.transpose(0, 2, 1)
-    
-    combined_features = np.concatenate((accel_features, audio_features_reshaped, audio_std_features_reshaped, audio_mfcc_features_reshaped, audio_mfcc_std_features_reshaped), axis=2)
-    #combined_features = np.concatenate((accel_features, audio_mfcc_features_reshaped, audio_mfcc_std_features_reshaped), axis=2)
+  
     # Normalize features
     scaler = StandardScaler()
     num_samples, time_steps, num_features = combined_features.shape
@@ -220,8 +257,17 @@ def preprocess_data():
 
 
 def main():
+    
+    '''
+    A target frames value above 50 will expand the sample rate of the accelerometer to the target frames value by perfoming linear interpolation.
+    A target frames value bellow 751 (for the STFT default values) will reduce the number of audio features per timestamp, by applying a moving average and standard deviation to the STFT magnitude matrix.
+    High target frames values will increase the model's complexity and may lead to memory errors.
+    '''
+    
+    target_frames_shape = 50
+    
     # Data preprocessing
-    X_train, X_test, y_train, y_test = preprocess_data()
+    X_train, X_test, y_train, y_test = preprocess_data(stft=True, mfcc=True, target_frames=target_frames_shape)
     
     # X_train and X_test shape: (number of samples, 50, 2143) - where:
 
@@ -234,10 +280,13 @@ def main():
     # Model building and training
 
     input_shape = X_train.shape[1:]
-    autoencoder = CNN_Simple(input_shape)
+    autoencoder = RNN_Simple(input_shape)
+    
+    # Early stopping setup
+    early_stopping = EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True, verbose=1)
     
     #print("Training autoencoder...")
-    autoencoder.fit(X_train, X_train, epochs=50, batch_size=32, validation_split=0.1, verbose=1)
+    autoencoder.fit(X_train, X_train, epochs=100, batch_size=128, validation_split=0.1, callbacks=[early_stopping], verbose=1)
     
     # Reconstruction and threshold finding
     X_train_pred = autoencoder.predict(X_train)
@@ -285,11 +334,6 @@ def main():
     plt.ylabel('True Label')
     plt.title('Confusion Matrix')
     plt.show()
-
-    # Reduce dimensions and plot
-    X_reduced = reduce_dimensions(X_test, method='t-SNE')
-    plot_reduced_data(X_reduced, y_test)
-    plot_reduced_data(X_reduced, y_test, y_test_pred)
 
     # Thresholds vs metrics
     thresholds = np.linspace(min(test_reconstruction_error), max(test_reconstruction_error), 100)

@@ -1,7 +1,7 @@
 '''
 Developer Notes:
 
-- This script used a data shape of number of samples x number of features, unlike tge Conv_AE script that used a datashape of number of samples x number of timesteps x number of features.
+- This script used a data shape of (number of samples x number of features), unlike tge Conv_AE script that used a datashape of (number of samples x number of timesteps x number of features).
 - The model achieved the best results using STFT features, without MFCC - (When added the other methods the results were almost the same).
 - MFCC performed poorly in this case, even when joined with other pre-processing methods.
 - Increasing the batch size from 32 to 128 did not improve the model performance.
@@ -229,33 +229,27 @@ early_stopping = EarlyStopping(monitor='val_loss', patience=5, restore_best_weig
 try:
     # Load the best trial
     best_trial = tuner.oracle.get_best_trials(1)[0]
-    print(f"Best trial: {best_trial.trial_id}")
-    print(f"Best trial value: {best_trial.score}")
-
-    # Best hyperparameters
-    hyperparameters = best_trial.hyperparameters
-    print(f"Best trial hyperparameters: {hyperparameters.values}")
-
-    # Build the best model using the best hyperparameters
-    autoencoder = AutoencoderHyperModel(input_dim).build(hyperparameters)
+    
 except IndexError:
     # Perform Bayesian optimization
-    tuner.search(X_train, X_train, epochs=epochs, batch_size=batch_size, validation_split=0.1, callbacks=[early_stopping], verbose=1)
-    
+    tuner.search(X_train, X_train, epochs=epochs, batch_size=batch_size, validation_split=0.1, callbacks=[early_stopping], verbose=1)    
+    # Load the best trial
     best_trial = tuner.oracle.get_best_trials(1)[0]
-    print(f"Best trial: {best_trial.trial_id}")
-    print(f"Best trial value: {best_trial.score}")
-
-    # Best hyperparameters
-    hyperparameters = best_trial.hyperparameters
-    print(f"Best trial hyperparameters: {hyperparameters.values}")
-
-    # Build the best model using the best hyperparameters
-    autoencoder = AutoencoderHyperModel(input_dim).build(hyperparameters)
     pass
+
 except AttributeError as e:
     print(f"Error while accessing best trial attributes: {e}")
 
+
+print(f"Best trial: {best_trial.trial_id}")
+print(f"Best trial value: {best_trial.score}")
+
+# Best hyperparameters
+hyperparameters = best_trial.hyperparameters
+print(f"Best trial hyperparameters: {hyperparameters.values}")
+
+# Build the best model using the best hyperparameters
+autoencoder = AutoencoderHyperModel(input_dim).build(hyperparameters)
 
 # Reconstruction and threshold finding
 X_train_pred = autoencoder.predict(X_train)
