@@ -39,10 +39,10 @@ def plot_reduced_data(X_reduced, y, y_pred=None, title="2D Map of Samples"):
     plt.legend(loc='best')
     plt.show()
 
-def plot_metrics_vs_threshold(thresholds, f1_scores_test, accuracy_test ,precisions_test, recalls_test, roc_aucs_test,
-                              f1_scores_train, accuracy_train ,precision_train, recalls_train, roc_aucs_train,
-                              optimal_threshold):
+def plot_metrics_vs_threshold(thresholds, f1_scores_test, accuracy_test ,precisions_test, recalls_test, roc_aucs_test, optimal_threshold):
+    #f1_scores_train, accuracy_train ,precision_train, recalls_train, roc_aucs_train,
     fig = go.Figure()
+
 
     # Add traces for test metrics
     fig.add_trace(go.Scatter(x=thresholds, y=f1_scores_test, mode='lines', name='F1 Score_Test'))
@@ -51,25 +51,19 @@ def plot_metrics_vs_threshold(thresholds, f1_scores_test, accuracy_test ,precisi
     fig.add_trace(go.Scatter(x=thresholds, y=recalls_test, mode='lines', name='Recall_Test'))
     fig.add_trace(go.Scatter(x=thresholds, y=roc_aucs_test, mode='lines', name='ROC-AUC_Test'))
 
-    # Add traces for train metrics
-    fig.add_trace(go.Scatter(x=thresholds, y=f1_scores_train, mode='lines', name='F1 Score_Train'))
-    fig.add_trace(go.Scatter(x=thresholds, y=accuracy_train, mode='lines', name='Accuracy_Train'))
-    fig.add_trace(go.Scatter(x=thresholds, y=precision_train, mode='lines', name='Precision_Train'))
-    fig.add_trace(go.Scatter(x=thresholds, y=recalls_train, mode='lines', name='Recall_Train'))
-    fig.add_trace(go.Scatter(x=thresholds, y=roc_aucs_train, mode='lines', name='ROC-AUC_Train'))
-
     # Add vertical line for optimal threshold
     fig.add_vline(x=optimal_threshold, line=dict(color='red', width=2, dash='dash'),
                   annotation_text='Optimal Threshold', annotation_position='top right')
 
-    # Update layout for better visualization
+    # Update layout to limit the X-axis range
     fig.update_layout(
         title='Metrics vs. Threshold',
         xaxis_title='Threshold',
         yaxis_title='Score',
         legend_title='Metric',
         template='plotly_dark',
-        showlegend=True
+        showlegend=True,
+        #xaxis_range=[0, 10]  # Limit the X-axis to the specified maximum threshold
     )
 
     # Show the figure

@@ -16,13 +16,14 @@ import pandas as pd
 import config
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import (precision_score, recall_score, f1_score, roc_auc_score, 
-                             confusion_matrix, accuracy_score, roc_curve)
+                             confusion_matrix, accuracy_score, roc_curve, classification_report)
 from sklearn.model_selection import train_test_split
 import tensorflow as tf
 from keras.callbacks import EarlyStopping
 from keras.layers import Input, Dense, BatchNormalization, Dropout, Lambda
 from keras.models import Model
-from keras_tuner import HyperModel, RandomSearch, HyperParameters, BayesianOptimization
+from keras.optimizers import Adam
+from keras_tuner import HyperModel, HyperParameters, BayesianOptimization
 import matplotlib.pyplot as plt
 import seaborn as sns
 import PreProc_Function as ppf
@@ -74,7 +75,7 @@ class AutoencoderHyperModel(HyperModel):
         decoded = Dense(self.input_dim, activation='sigmoid')(decoded)
         
         autoencoder = Model(input_layer, decoded)
-        autoencoder.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=learning_rate),
+        autoencoder.compile(optimizer=Adam(learning_rate=learning_rate),
                             loss='mse')        
         return autoencoder
 

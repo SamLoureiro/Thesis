@@ -3,7 +3,7 @@ Developer Notes:
 
 - This script used a datashape of number of samples x number of timesteps x number of features, unlike tge Dense_AE script that used a datashape of number of samples x number of features.
 - Due to the specific nature of the data shape, the preprocessing was different from the Dense_AE script.
-- Increasing the accelerometer's sample rate through interpolation to allow for more audio features only increased the model's comlexity and did not improve performance (RNN_Complex was unable to train due to lack of RAM).
+- Increasing the accelerometer's sample rate through interpolation to allow for more audio features only increased the model's comlexity and did not improve performance (RNNs were unable to train due to lack of RAM).
 - The precision of the various models is the most penalized metric.
 - The Dense_AE model with the same pre-processing as the supervised methods is the one with the best performance.
 '''
@@ -15,16 +15,19 @@ import pandas as pd
 import librosa
 import matplotlib.pyplot as plt
 import seaborn as sns
+import shutil
 from scipy import interpolate
 from scipy.signal.windows import hann
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import (precision_score, recall_score, f1_score, roc_auc_score, 
-                             confusion_matrix, accuracy_score, roc_curve)
+                             confusion_matrix, accuracy_score, roc_curve, classification_report, precision_recall_curve)
 from sklearn.model_selection import train_test_split
+from sklearn.utils import shuffle
 import tensorflow as tf
 from keras.callbacks import EarlyStopping
-from UN_CNN_Models import RNN_Complex, RNN_Simple, CNN_Simple, DEEP_CNN, Attention_AE, Denoising_AE
-from AE_Aux_Func import reduce_dimensions, plot_reduced_data, plot_metrics_vs_threshold
+from keras_tuner import HyperModel, HyperParameters, BayesianOptimization
+from UN_CNN_Models import RNN_DEEP, RNN_SIMPLE, CNN_SIMPLE, CNN_DEEP, Attention_AE
+from AE_Aux_Func import plot_metrics_vs_threshold
 
 
 
@@ -59,7 +62,7 @@ def load_files(directory, file_extension):
         key=sort_key
     )
 
-def proc_audio(audio_file, n_fft=1024, hop_length=256, num_samples=50, mfcc=True, stft=True):
+def proc_audio(audio_file, n_fft=2048, hop_length=1024, num_samples=50, mfcc=True, stft=True):
     """Compute the Short-Time Fourier Transform (STFT), Mel-Frequency Cepstral Coefficients (MFCC), and resample accelerometer data."""
     audio, sr = librosa.load(audio_file, sr=192000)
     stft_matrix = librosa.stft(audio, n_fft=n_fft, hop_length=hop_length)
@@ -157,26 +160,35 @@ def extract_raw_accel_features(csv_file_path, target_frames=50):
 def preprocess_data(stft=True, mfcc=True, target_frames=50):
     """Preprocess data for training and testing."""
     # Load data
-    regular_audio = (load_files(file_paths['good_bearing_audio_s'], '.WAV') +
-                     load_files(file_paths['good_bearing_audio_m'], '.WAV') +
-                     load_files(file_paths['smooth_floor_audio'], '.WAV') +
+    noise_audio =   (load_files(file_paths['smooth_floor_audio'], '.WAV') +
                      load_files(file_paths['tiled_floor_audio'], '.WAV'))
-    regular_accel = (load_files(file_paths['good_bearing_acel_s'], '.csv') +
-                     load_files(file_paths['good_bearing_acel_m'], '.csv') +
-                     load_files(file_paths['smooth_floor_acel'], '.csv') +
+    noise_accel =   (load_files(file_paths['smooth_floor_acel'], '.csv') +
                      load_files(file_paths['tiled_floor_acel'], '.csv'))
     
-    failures_audio = (load_files(file_paths['damaged_bearing_audio_s'], '.WAV') +
-                      load_files(file_paths['damaged_bearing_audio_m'], '.WAV'))
-    failures_accel = (load_files(file_paths['damaged_bearing_acel_s'], '.csv') +
-                      load_files(file_paths['damaged_bearing_acel_m'], '.csv'))
+    good_bearing_audio = (load_files(file_paths['good_bearing_audio_s'], '.WAV') +
+                          load_files(file_paths['good_bearing_audio_m'], '.WAV'))
+    
+    damaged_bearing_audio = (load_files(file_paths['damaged_bearing_audio_s'], '.WAV') + 
+                             load_files(file_paths['damaged_bearing_audio_m'], '.WAV'))
+    
+    good_bearing_accel = (load_files(file_paths['good_bearing_acel_s'], '.csv') +
+                          load_files(file_paths['good_bearing_acel_m'], '.csv'))
+    
+    damaged_bearing_accel = (load_files(file_paths['damaged_bearing_acel_s'], '.csv') +
+                             load_files(file_paths['damaged_bearing_acel_m'], '.csv'))
+    
+    print("\nNumber of Noise Samples:", len(noise_audio))
+    print("Number of Good Bearing Samples:", len(good_bearing_audio))
+    print("Number of Damaged Bearing Samples:", len(damaged_bearing_audio))
+    print("Number of Total Bearing Samples:", len(good_bearing_audio) + len(damaged_bearing_audio))
     
     # Process data
     audio_stft_avg_features, audio_stft_std_features, audio_mfcc_avg_features, audio_mfcc_std_features, accel_features, labels = [], [], [], [], [], []
     
     start_time_pre_proc = time.time()
     
-    for audio_file, accel_file in zip(regular_audio, regular_accel):        
+    # Process noise data
+    for audio_file, accel_file in zip(noise_audio, noise_accel):        
         avg_magnitude, std_magnitude, avg_mfcc, std_mfcc = proc_audio(audio_file, stft=stft, mfcc=mfcc, num_samples=target_frames)
         if stft and mfcc:            
             audio_stft_avg_features.append(avg_magnitude)
@@ -192,8 +204,9 @@ def preprocess_data(stft=True, mfcc=True, target_frames=50):
 
         accel_features.append(extract_raw_accel_features(accel_file, target_frames=target_frames))
         labels.append(0)
-        
-    for audio_file, accel_file in zip(failures_audio, failures_accel):
+    
+    # Process good bearing data
+    for audio_file, accel_file in zip(good_bearing_audio, good_bearing_accel):
         avg_magnitude, std_magnitude, avg_mfcc, std_mfcc = proc_audio(audio_file, stft=stft, mfcc=mfcc, num_samples=target_frames)
         if stft and mfcc:
             audio_stft_avg_features.append(avg_magnitude)
@@ -209,8 +222,30 @@ def preprocess_data(stft=True, mfcc=True, target_frames=50):
         
         accel_features.append(extract_raw_accel_features(accel_file, target_frames=target_frames))
         labels.append(1)
+        
+    # Process damaged bearing data
+    for audio_file, accel_file in zip(damaged_bearing_audio, damaged_bearing_accel):
+        avg_magnitude, std_magnitude, avg_mfcc, std_mfcc = proc_audio(audio_file, stft=stft, mfcc=mfcc, num_samples=target_frames)
+        if stft and mfcc:
+            audio_stft_avg_features.append(avg_magnitude)
+            audio_stft_std_features.append(std_magnitude)
+            audio_mfcc_avg_features.append(avg_mfcc)
+            audio_mfcc_std_features.append(std_mfcc)
+        elif stft:
+            audio_stft_avg_features.append(avg_magnitude)
+            audio_stft_std_features.append(std_magnitude)
+        elif mfcc:
+            audio_mfcc_avg_features.append(avg_mfcc)
+            audio_mfcc_std_features.append(std_mfcc)
+        
+        accel_features.append(extract_raw_accel_features(accel_file, target_frames=target_frames))
+        labels.append(2)
     
     end_time_pre_proc = time.time()
+    
+    pre_proc_time = end_time_pre_proc - start_time_pre_proc
+    
+    methods_string = ""
     
     # Convert lists to numpy arrays and reshape
     if stft and mfcc:
@@ -224,6 +259,7 @@ def preprocess_data(stft=True, mfcc=True, target_frames=50):
         audio_mfcc_avg_features_reshaped = audio_mfcc_avg_features.transpose(0, 2, 1)
         audio_mfcc_std_features_reshaped = audio_mfcc_std_features.transpose(0, 2, 1)
         combined_features = np.concatenate((accel_features, audio_stft_avg_features_reshaped, audio_stft_std_features_reshaped, audio_mfcc_avg_features_reshaped, audio_mfcc_std_features_reshaped), axis=2)
+        methods_string = "stft_mfcc"
     elif stft:
         audio_stft_avg_features = np.array(audio_stft_avg_features)
         audio_stft_std_features = np.array(audio_stft_std_features)
@@ -231,6 +267,7 @@ def preprocess_data(stft=True, mfcc=True, target_frames=50):
         audio_stft_avg_features_reshaped = audio_stft_avg_features.transpose(0, 2, 1)
         audio_stft_std_features_reshaped = audio_stft_std_features.transpose(0, 2, 1)
         combined_features = np.concatenate((accel_features, audio_stft_avg_features_reshaped, audio_stft_std_features_reshaped), axis=2)
+        methods_string = "stft"
     elif mfcc:
         audio_mfcc_avg_features = np.array(audio_mfcc_avg_features)
         audio_mfcc_std_features = np.array(audio_mfcc_std_features)
@@ -238,11 +275,12 @@ def preprocess_data(stft=True, mfcc=True, target_frames=50):
         audio_mfcc_avg_features_reshaped = audio_mfcc_avg_features.transpose(0, 2, 1)
         audio_mfcc_std_features_reshaped = audio_mfcc_std_features.transpose(0, 2, 1)
         combined_features = np.concatenate((accel_features, audio_mfcc_avg_features_reshaped, audio_mfcc_std_features_reshaped), axis=2)
+        methods_string = "mfcc"
     else:
         accel_features = np.array(accel_features)
         combined_features = np.concatenate((accel_features), axis=2)
+        methods_string = "only_accel"
     
-  
     # Normalize features
     scaler = StandardScaler()
     num_samples, time_steps, num_features = combined_features.shape
@@ -251,10 +289,28 @@ def preprocess_data(stft=True, mfcc=True, target_frames=50):
     
     print("\nAverage Preprocessing Time per Sample:", (end_time_pre_proc - start_time_pre_proc) / len(labels))
     
-    print("\nCombined Features Shape:", combined_features_normalized.shape)    
-   
-    return train_test_split(combined_features_normalized, labels, test_size=0.2, random_state=42)
+    print("\nCombined Features Shape:", combined_features_normalized.shape)
+    
 
+    return combined_features_normalized, labels, methods_string, pre_proc_time
+
+def remove_unused_trials(keras_tuner_dir, project_name, best_trial):
+    """Removes all trials except for the best one."""
+    trials_dir = os.path.join(keras_tuner_dir, project_name)
+    
+    for subdir in os.listdir(trials_dir):
+        trial_dir = os.path.join(trials_dir, subdir)
+        
+        # Only consider files/directories with an "_" in the name
+        if "_" in subdir:
+            trial_id = subdir.split('_')[-1]
+            if trial_id != best_trial.trial_id:
+                print(f"Deleting trial {trial_id}")
+                shutil.rmtree(trial_dir)
+            else:
+                print(f"Keeping best trial {trial_id}")
+        else:
+            print(f"Skipping {subdir}")
 
 def main():
     
@@ -265,9 +321,36 @@ def main():
     '''
     
     target_frames_shape = 50
+    stft = True
+    mfcc = True
     
     # Data preprocessing
-    X_train, X_test, y_train, y_test = preprocess_data(stft=True, mfcc=True, target_frames=target_frames_shape)
+    features, labels, methods, pre_proc_time = preprocess_data(stft=stft, mfcc=mfcc, target_frames=target_frames_shape)
+    
+    # Split data: train only on noise data (label 0), test on both noise and bearing data
+    noise_samples = features[np.array(labels) == 0]
+    noise_labels= np.array([0] * noise_samples.shape[0])  # All labels in training set are 0
+    
+    bearings_samples = features[np.array(labels) != 0]
+    bearings_labels = np.array(labels)[np.array(labels) != 0] 
+    
+    good_bearing_samples = features[np.array(labels) == 1]
+    good_bearing_labels = np.array([1] * good_bearing_samples.shape[0])
+    
+    damaged_bearing_samples = features[np.array(labels) == 2]
+    damaged_bearing_labels = np.array([2] * damaged_bearing_samples.shape[0])   
+    
+    X_train, X_test_noise, y_train, y_test_noise = train_test_split(noise_samples, noise_labels, test_size=0.2, random_state=42)
+    
+    X_test_size = len(X_test_noise)
+    
+    n_bearing_samples = len(bearings_labels)
+    bearings_labels_ae = np.ones(n_bearing_samples)
+    
+    X_test_bearings, y_test_bearings = shuffle(bearings_samples, bearings_labels, random_state=42)
+    
+    X_test = np.concatenate((X_test_noise, X_test_bearings[:X_test_size]), axis=0)
+    y_test = np.concatenate((y_test_noise, bearings_labels_ae[:X_test_size]), axis=0)
     
     # X_train and X_test shape: (number of samples, 50, 2143) - where:
 
@@ -280,13 +363,54 @@ def main():
     # Model building and training
 
     input_shape = X_train.shape[1:]
-    autoencoder = RNN_Simple(input_shape)
-    
+    # Epochs and batch size
+    epochs = 100
+    batch_size = 32
+
+    # Define directories
+    current_dir = os.getcwd()
+    tuner_dir = os.path.join(current_dir, 'Bayesian_Tuning', 'RNN_SIMPLE')
+    project_name = 'AE_TB_' + str(batch_size) + 'bs_' + methods + '_' + str(target_frames_shape)
+
+
+    # Define the BayesianOptimization tuner
+    tuner = BayesianOptimization(
+        hypermodel=RNN_DEEP(input_shape),
+        objective='val_loss',
+        max_trials=10,
+        executions_per_trial=1,
+        directory=tuner_dir,
+        project_name=project_name
+    )
+
     # Early stopping setup
     early_stopping = EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True, verbose=1)
-    
-    #print("Training autoencoder...")
-    autoencoder.fit(X_train, X_train, epochs=100, batch_size=128, validation_split=0.1, callbacks=[early_stopping], verbose=1)
+
+    # If the tuner directory exists, try to load the best trial, otherwise perform Bayesian optimization and save and load the best trial
+    try:
+        # Load the best trial
+        best_trial = tuner.oracle.get_best_trials(1)[0]
+        
+    except IndexError:
+        # Perform Bayesian optimization
+        tuner.search(X_train, X_train, epochs=epochs, batch_size=batch_size, validation_split=0.1, callbacks=[early_stopping], verbose=1)    
+        # Load the best trial
+        best_trial = tuner.oracle.get_best_trials(1)[0]
+        pass
+
+    except AttributeError as e:
+        print(f"Error while accessing best trial attributes: {e}")
+
+
+    print(f"Best trial: {best_trial.trial_id}")
+    print(f"Best trial value: {best_trial.score}")
+
+    # Best hyperparameters
+    hyperparameters = best_trial.hyperparameters
+    print(f"Best trial hyperparameters: {hyperparameters.values}")
+
+    # Build the best model using the best hyperparameters
+    autoencoder = RNN_SIMPLE(input_shape).build(hyperparameters)
     
     # Reconstruction and threshold finding
     X_train_pred = autoencoder.predict(X_train)
@@ -296,16 +420,31 @@ def main():
     
     train_reconstruction_error = np.mean(np.abs(X_train - X_train_pred), axis=(1, 2))
     test_reconstruction_error = np.mean(np.abs(X_test - X_test_pred), axis=(1, 2))
+    
+    print("\nTrain Reconstruction Error:", train_reconstruction_error)
+    print("Test Reconstruction Error:", test_reconstruction_error)
+    
     # Calculate ROC curve
     fpr, tpr, thresholds = roc_curve(y_test, test_reconstruction_error)
 
     # Find the optimal threshold
     optimal_idx = np.argmax(tpr - fpr)  # This gives you the threshold with the maximum difference between TPR and FPR
     optimal_threshold = thresholds[optimal_idx]
+    
+    '''# Determine the optimal threshold using precision-recall curve
+    precision, recall, thresholds = precision_recall_curve(y_test, test_reconstruction_error)
+    f1_scores = 2 * (precision * recall) / (precision + recall)
+    optimal_idx = np.argmax(f1_scores)
+    optimal_threshold = thresholds[optimal_idx]'''
    
     y_test_pred = (test_reconstruction_error > optimal_threshold).astype(int)
-
-    # Evaluation
+    
+    # Classification report
+    print("Classification Report:")
+    print(classification_report(y_test, y_test_pred, target_names=['BEARING', 'NOISE']))
+    print("\n")    
+    
+    # Global Evaluation
     print("Evaluation:")
     print(f"Optimal Threshold: {optimal_threshold:.3f}")  
     print(f"Accuracy: {accuracy_score(y_test, y_test_pred):.3f}")
@@ -314,16 +453,16 @@ def main():
     print(f"F1 Score: {f1_score(y_test, y_test_pred):.3f}")
     print(f"AUC: {roc_auc_score(y_test, test_reconstruction_error):.3f}")
     print(f"Average inference time per sample: {(inference_time / len(X_test)) * 1000:.3f} ms")
-    
-        
-    # Count the number of good and damaged bearings in the test set
+    print(f"Average processing time per sample: {(pre_proc_time / (len(y_train) + len(y_test)) * 1000):.3f} ms")
+
+    # Count the number of noise samples and bearings samples in the test set
     unique, counts = np.unique(y_test, return_counts=True)
     label_counts = dict(zip(unique, counts))
 
-    print(f"Number of good bearings (0) in the test set: {label_counts.get(0, 0)}")
-    print(f"Number of damaged bearings (1) in the test set: {label_counts.get(1, 0)}")
-    
-    cm = confusion_matrix(y_test, y_test_pred, labels=[0, 1])
+    print(f"Number of noise samples (0) in the test set: {label_counts.get(0, 0)}")
+    print(f"Number of bearing samples (1) in the test set: {label_counts.get(1, 0)}")
+
+    cm = confusion_matrix(y_test, y_test_pred)
 
     # Plot confusion matrix
     plt.figure(figsize=(8, 6))
@@ -336,33 +475,48 @@ def main():
     plt.show()
 
     # Thresholds vs metrics
-    thresholds = np.linspace(min(test_reconstruction_error), max(test_reconstruction_error), 100)
+    
+    # Use the IQR method to filter out outliers
+    Q1 = np.percentile(test_reconstruction_error, 25)
+    Q3 = np.percentile(test_reconstruction_error, 75)
+    IQR = Q3 - Q1
+    lower_bound = Q1 - 1.5 * IQR
+    upper_bound = Q3 + 1.5 * IQR
+    filtered_errors = test_reconstruction_error[(test_reconstruction_error >= lower_bound) & (test_reconstruction_error <= upper_bound)]
+
+    # Generate thresholds within the filtered range
+    thresholds = np.linspace(min(filtered_errors), max(filtered_errors), 100)
+    #thresholds = np.linspace(min(test_reconstruction_error), max(test_reconstruction_error), 100)
     f1_scores_test = []
     precisions_test = []
     recalls_test = []
+    accuracy_test = []
     roc_aucs_test = []
-    f1_scores_train= []
-    precision_train = []
-    recalls_train = []
-    roc_aucs_train = []
+    #f1_scores_train = []
+    #accuracy_train = []
+    #precision_train = []
+    #recalls_train = []
+    #roc_aucs_train = []
 
-    # Calculate metrics for each threshold
     for threshold in thresholds:
         y_test_pred = (test_reconstruction_error > threshold).astype(int)
         f1_scores_test.append(f1_score(y_test, y_test_pred))
+        accuracy_test.append(accuracy_score(y_test, y_test_pred))
         precisions_test.append(precision_score(y_test, y_test_pred, zero_division=0))
         recalls_test.append(recall_score(y_test, y_test_pred))
         roc_aucs_test.append(roc_auc_score(y_test, test_reconstruction_error))
-        y_train_pred = (train_reconstruction_error > threshold).astype(int)
-        f1_scores_train.append(f1_score(y_train, y_train_pred))
-        precision_train.append(precision_score(y_train, y_train_pred, zero_division=0))
-        recalls_train.append(recall_score(y_train, y_train_pred))
-        roc_aucs_train.append(roc_auc_score(y_train, train_reconstruction_error))
-
+        #y_train_pred = (train_reconstruction_error > threshold).astype(int)
+        #f1_scores_train.append(f1_score(y_train, y_train_pred))
+        #accuracy_train.append(accuracy_score(y_train, y_train_pred))
+        #precision_train.append(precision_score(y_train, y_train_pred, zero_division=0))
+        #recalls_train.append(recall_score(y_train, y_train_pred))
+        #roc_aucs_train.append(roc_auc_score(y_train, train_reconstruction_error))
+    
     # Plot metrics vs threshold
-    plot_metrics_vs_threshold(thresholds, f1_scores_test, precisions_test, recalls_test, roc_aucs_test,
-                            f1_scores_train, precision_train, recalls_train, roc_aucs_train,
-                            optimal_threshold)
+    plot_metrics_vs_threshold(thresholds, f1_scores_test, accuracy_test, precisions_test, recalls_test, roc_aucs_test, optimal_threshold)
+
+
+    remove_unused_trials(tuner_dir, project_name, best_trial)
 
 if __name__ == "__main__":
     main()
