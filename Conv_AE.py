@@ -27,7 +27,7 @@ import tensorflow as tf
 from keras.callbacks import EarlyStopping
 from keras_tuner import HyperModel, HyperParameters, BayesianOptimization
 from UN_CNN_Models import RNN_DEEP, RNN_SIMPLE, CNN_SIMPLE, CNN_DEEP, Attention_AE
-from AE_Aux_Func import plot_metrics_vs_threshold
+from AE_Aux_Func import plot_metrics_vs_threshold, plot_precision_recall_curve
 
 
 
@@ -327,32 +327,37 @@ def main():
     # Data preprocessing
     features, labels, methods, pre_proc_time = preprocess_data(stft=stft, mfcc=mfcc, target_frames=target_frames_shape)
     
-    # Split data: train only on noise data (label 0), test on both noise and bearing data
-    noise_samples = features[np.array(labels) == 0]
-    noise_labels= np.array([0] * noise_samples.shape[0])  # All labels in training set are 0
-    
+    # Noise samples (considered as regular data)
+    noise_samples = features[np.array(labels) == 0]    
+    noise_labels = np.array([0] * noise_samples.shape[0])  # All labels in training set are 0
+ 
+    # Bearing samples (considered as anomalies)
     bearings_samples = features[np.array(labels) != 0]
     bearings_labels = np.array(labels)[np.array(labels) != 0] 
     
+    # Split bearing samples into good and damaged bearings (For later use)
     good_bearing_samples = features[np.array(labels) == 1]
     good_bearing_labels = np.array([1] * good_bearing_samples.shape[0])
     
     damaged_bearing_samples = features[np.array(labels) == 2]
     damaged_bearing_labels = np.array([2] * damaged_bearing_samples.shape[0])   
     
-    X_train, X_test_noise, y_train, y_test_noise = train_test_split(noise_samples, noise_labels, test_size=0.2, random_state=42)
+    # Split noise data into training and validation sets
+    X_train, X_val, y_train, y_val = train_test_split(noise_samples, noise_labels, test_size=0.1, random_state=42)
     
-    X_test_size = len(X_test_noise)
+    # Further split labeled anomalies into validation and test sets
+    bearings_train, bearings_test, bearings_train_labels, bearings_test_labels = train_test_split(bearings_samples, bearings_labels, test_size=0.5, random_state=42)
     
-    n_bearing_samples = len(bearings_labels)
-    bearings_labels_ae = np.ones(n_bearing_samples)
+    bearings_train = bearings_train[:95]
+    bearings_test = bearings_test[:95]
+    bearings_train_labels = bearings_train_labels[:95]
+    bearings_test_labels = bearings_test_labels[:95]
     
-    X_test_bearings, y_test_bearings = shuffle(bearings_samples, bearings_labels, random_state=42)
     
-    X_test = np.concatenate((X_test_noise, X_test_bearings[:X_test_size]), axis=0)
-    y_test = np.concatenate((y_test_noise, bearings_labels_ae[:X_test_size]), axis=0)
+    bearings_train_labels_ae = np.ones(len(bearings_train_labels))
+    bearings_test_labels_ae = np.ones(len(bearings_test_labels)) 
     
-    # X_train and X_test shape: (number of samples, 50, 2143) - where:
+    # X_train and X_val shape: (number of samples, 50, 2143) - where:
 
     # n - number of samples
     # 50 - timestamps of each sample
@@ -370,14 +375,14 @@ def main():
     # Define directories
     current_dir = os.getcwd()
     tuner_dir = os.path.join(current_dir, 'Bayesian_Tuning', 'RNN_SIMPLE')
-    project_name = 'AE_TB_' + str(batch_size) + 'bs_' + methods + '_' + str(target_frames_shape)
+    project_name = 'AE_TB_' + str(batch_size) + 'bs_' + methods + '_' + str(50)#str(target_frames_shape)
 
 
     # Define the BayesianOptimization tuner
     tuner = BayesianOptimization(
-        hypermodel=RNN_DEEP(input_shape),
+        hypermodel=RNN_SIMPLE(input_shape),
         objective='val_loss',
-        max_trials=10,
+        max_trials=20,
         executions_per_trial=1,
         directory=tuner_dir,
         project_name=project_name
@@ -413,108 +418,125 @@ def main():
     autoencoder = RNN_SIMPLE(input_shape).build(hyperparameters)
     
     # Reconstruction and threshold finding
-    X_train_pred = autoencoder.predict(X_train)
     start_time = time.time()
-    X_test_pred = autoencoder.predict(X_test)
+    val_predictions = autoencoder.predict(X_val)
     inference_time = time.time() - start_time
     
-    train_reconstruction_error = np.mean(np.abs(X_train - X_train_pred), axis=(1, 2))
-    test_reconstruction_error = np.mean(np.abs(X_test - X_test_pred), axis=(1, 2))
-    
-    print("\nTrain Reconstruction Error:", train_reconstruction_error)
-    print("Test Reconstruction Error:", test_reconstruction_error)
-    
-    # Calculate ROC curve
-    fpr, tpr, thresholds = roc_curve(y_test, test_reconstruction_error)
+    # Get the reconstruction error on the validation set
+    val_errors = np.mean(np.square(X_val - val_predictions), axis=(1,2))
 
-    # Find the optimal threshold
-    optimal_idx = np.argmax(tpr - fpr)  # This gives you the threshold with the maximum difference between TPR and FPR
+    # Get the reconstruction error on the labeled validation anomalies
+    bearing_val_predictions = autoencoder.predict(bearings_train)
+    bearing_val_errors = np.mean(np.square(bearings_train - bearing_val_predictions), axis=(1,2))
+    
+    # Tune the threshold based on precision-recall curve
+    # Labels for the validation set should be all 0 (normal) and for the labeled validation anomalies should be 1 (anomalous)
+    y_val_binary = np.array([0] * len(val_errors))  # Normal data
+    y_bearing_binary = np.array([1] * len(bearing_val_errors))  # Anomalous data
+
+    # Combine validation errors and bearing validation errors
+    combined_errors = np.concatenate([val_errors, bearing_val_errors])
+    combined_labels = np.concatenate([y_val_binary, y_bearing_binary])
+
+    # Calculate precision, recall, and thresholds
+    precision, recall, thresholds = precision_recall_curve(combined_labels, combined_errors)
+
+    # Calculate the absolute difference between precision and recall
+    diff = abs(precision - recall)
+
+    # Find the index of the minimum difference
+    optimal_idx = np.argmin(diff)
+
+    # Get the optimal threshold
     optimal_threshold = thresholds[optimal_idx]
+
+    print(f"Optimal threshold: {optimal_threshold}")
     
-    '''# Determine the optimal threshold using precision-recall curve
-    precision, recall, thresholds = precision_recall_curve(y_test, test_reconstruction_error)
-    f1_scores = 2 * (precision * recall) / (precision + recall)
-    optimal_idx = np.argmax(f1_scores)
-    optimal_threshold = thresholds[optimal_idx]'''
-   
-    y_test_pred = (test_reconstruction_error > optimal_threshold).astype(int)
-    
-    # Classification report
-    print("Classification Report:")
-    print(classification_report(y_test, y_test_pred, target_names=['BEARING', 'NOISE']))
-    print("\n")    
+
+    # Final evaluation on the test set
+    bearing_test_predictions = autoencoder.predict(bearings_test)
+    bearing_test_errors = np.mean(np.square(bearings_test - bearing_test_predictions), axis=(1,2))
+
+    # Randomly select a predefined number of noise samples to include in the test set
+    predefined_noise_samples_count = len(bearings_test)  # Set the desired number of noise samples
+    random_noise_indices = np.random.choice(noise_samples.shape[0], predefined_noise_samples_count, replace=False)
+    selected_noise_samples = noise_samples[random_noise_indices]
+    selected_noise_labels = noise_labels[random_noise_indices]
+
+    # Predict the reconstruction error for the selected noise samples
+    noise_test_predictions = autoencoder.predict(selected_noise_samples)
+    noise_test_errors = np.mean(np.square(selected_noise_samples - noise_test_predictions), axis=(1,2))
+
+    # Combine the noise and bearing errors
+    combined_test_errors = np.concatenate([bearing_test_errors, noise_test_errors])
+    combined_test_labels = np.concatenate([bearings_test_labels_ae, selected_noise_labels])
+
+    # Determine which samples are anomalies based on the optimal threshold
+    test_anomalies = combined_test_errors > optimal_threshold
+
+    # Calculate and print the final detection metrics
+    predicted_labels = test_anomalies.astype(int)
+
+    print(classification_report(combined_test_labels, predicted_labels, target_names=["Noise", "Anomaly"]))
     
     # Global Evaluation
     print("Evaluation:")
     print(f"Optimal Threshold: {optimal_threshold:.3f}")  
-    print(f"Accuracy: {accuracy_score(y_test, y_test_pred):.3f}")
-    print(f"Precision: {precision_score(y_test, y_test_pred):.3f}")
-    print(f"Recall: {recall_score(y_test, y_test_pred):.3f}")
-    print(f"F1 Score: {f1_score(y_test, y_test_pred):.3f}")
-    print(f"AUC: {roc_auc_score(y_test, test_reconstruction_error):.3f}")
-    print(f"Average inference time per sample: {(inference_time / len(X_test)) * 1000:.3f} ms")
-    print(f"Average processing time per sample: {(pre_proc_time / (len(y_train) + len(y_test)) * 1000):.3f} ms")
+    print(f"Accuracy: {accuracy_score(combined_test_labels, predicted_labels):.3f}")
+    print(f"Precision: {precision_score(combined_test_labels, predicted_labels):.3f}")
+    print(f"Recall: {recall_score(combined_test_labels, predicted_labels):.3f}")
+    print(f"F1 Score: {f1_score(combined_test_labels, predicted_labels):.3f}")
+    print(f"AUC: {roc_auc_score(combined_test_labels, predicted_labels):.3f}")
+    print(f"Average inference time per sample: {(inference_time / len(X_val)) * 1000:.3f} ms")
+    print(f"Average processing time per sample: {(pre_proc_time / (len(y_train) + len(y_val)) * 1000):.3f} ms")
+
 
     # Count the number of noise samples and bearings samples in the test set
-    unique, counts = np.unique(y_test, return_counts=True)
+    unique, counts = np.unique(combined_test_labels, return_counts=True)
     label_counts = dict(zip(unique, counts))
 
     print(f"Number of noise samples (0) in the test set: {label_counts.get(0, 0)}")
     print(f"Number of bearing samples (1) in the test set: {label_counts.get(1, 0)}")
 
-    cm = confusion_matrix(y_test, y_test_pred)
+    cm = confusion_matrix(combined_test_labels, predicted_labels)
 
     # Plot confusion matrix
     plt.figure(figsize=(8, 6))
     sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', cbar=False,
-                xticklabels=['Normal', 'Anomaly'],
-                yticklabels=['Normal', 'Anomaly'])
+                xticklabels=['Noise', 'Anomaly'],
+                yticklabels=['Noise', 'Anomaly'])
     plt.xlabel('Predicted Label')
     plt.ylabel('True Label')
     plt.title('Confusion Matrix')
     plt.show()
-
+    
     # Thresholds vs metrics
     
     # Use the IQR method to filter out outliers
-    Q1 = np.percentile(test_reconstruction_error, 25)
-    Q3 = np.percentile(test_reconstruction_error, 75)
+    Q1 = np.percentile(combined_test_errors, 25)
+    Q3 = np.percentile(combined_test_errors, 75)
     IQR = Q3 - Q1
     lower_bound = Q1 - 1.5 * IQR
     upper_bound = Q3 + 1.5 * IQR
-    filtered_errors = test_reconstruction_error[(test_reconstruction_error >= lower_bound) & (test_reconstruction_error <= upper_bound)]
+    filtered_errors = combined_test_errors[(combined_test_errors >= lower_bound) & (combined_test_errors <= upper_bound)]
 
     # Generate thresholds within the filtered range
     thresholds = np.linspace(min(filtered_errors), max(filtered_errors), 100)
-    #thresholds = np.linspace(min(test_reconstruction_error), max(test_reconstruction_error), 100)
     f1_scores_test = []
     precisions_test = []
     recalls_test = []
     accuracy_test = []
     roc_aucs_test = []
-    #f1_scores_train = []
-    #accuracy_train = []
-    #precision_train = []
-    #recalls_train = []
-    #roc_aucs_train = []
-
     for threshold in thresholds:
-        y_test_pred = (test_reconstruction_error > threshold).astype(int)
-        f1_scores_test.append(f1_score(y_test, y_test_pred))
-        accuracy_test.append(accuracy_score(y_test, y_test_pred))
-        precisions_test.append(precision_score(y_test, y_test_pred, zero_division=0))
-        recalls_test.append(recall_score(y_test, y_test_pred))
-        roc_aucs_test.append(roc_auc_score(y_test, test_reconstruction_error))
-        #y_train_pred = (train_reconstruction_error > threshold).astype(int)
-        #f1_scores_train.append(f1_score(y_train, y_train_pred))
-        #accuracy_train.append(accuracy_score(y_train, y_train_pred))
-        #precision_train.append(precision_score(y_train, y_train_pred, zero_division=0))
-        #recalls_train.append(recall_score(y_train, y_train_pred))
-        #roc_aucs_train.append(roc_auc_score(y_train, train_reconstruction_error))
+        y_test_pred = (combined_test_errors > threshold).astype(int)
+        f1_scores_test.append(f1_score(combined_test_labels, y_test_pred))
+        accuracy_test.append(accuracy_score(combined_test_labels, y_test_pred))
+        precisions_test.append(precision_score(combined_test_labels, y_test_pred, zero_division=0))
+        recalls_test.append(recall_score(combined_test_labels, y_test_pred))
+        roc_aucs_test.append(roc_auc_score(combined_test_labels, combined_test_errors))
     
     # Plot metrics vs threshold
     plot_metrics_vs_threshold(thresholds, f1_scores_test, accuracy_test, precisions_test, recalls_test, roc_aucs_test, optimal_threshold)
-
 
     remove_unused_trials(tuner_dir, project_name, best_trial)
 

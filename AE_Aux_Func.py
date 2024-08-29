@@ -3,6 +3,7 @@ AutoEncoder Auxiliary Functions
 '''
 
 import numpy as np
+import random
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
 import plotly.graph_objects as go
@@ -98,3 +99,49 @@ def find_optimal_threshold_cost_based(reconstruction_error, y_true, cost_fp=2, c
             best_threshold = threshold
     
     return best_threshold
+
+def plot_precision_recall_curve(precisions, recalls, thresholds):
+    plt.figure(figsize=(8, 6))
+    plt.plot(recalls, precisions, marker='.', label="Precision-Recall Curve")
+    plt.xlabel("Recall")
+    plt.ylabel("Precision")
+    plt.title("Precision-Recall Curve")
+    plt.legend()
+    plt.grid(True)
+    
+    # Mark the optimal threshold
+    optimal_idx = np.argmax(2 * (precisions * recalls) / (precisions + recalls))
+    optimal_threshold = thresholds[optimal_idx] if thresholds.size > 0 else 0
+    plt.scatter(recalls[optimal_idx], precisions[optimal_idx], marker='o', color='red', label=f"Optimal Threshold: {optimal_threshold:.2f}")
+    plt.legend()
+    
+    plt.show()
+    
+def plot_histogram(erros, bins):
+    plt.hist(erros, bins)
+    plt.xlabel('Reconstruction Error')
+    plt.ylabel('Frequency')
+    plt.title('Histogram of Reconstruction Errors')
+    plt.show()
+    
+def plot_reconstruted_data(n_indices, X, X_pred):
+
+    indices = random.sample(range(len(X)), n_indices)
+
+    for i in indices:
+        plt.figure(figsize=(12, 4))
+
+        # Original
+        plt.subplot(1, 2, 1)
+        plt.plot(X[i], label='Original')
+        plt.legend()
+        plt.title('Original Data')
+
+        # Reconstructed
+        plt.subplot(1, 2, 2)
+        plt.plot(X_pred[i], label='Reconstructed')
+        plt.legend()
+        plt.title('Reconstructed Data')
+
+        plt.show()
+    
