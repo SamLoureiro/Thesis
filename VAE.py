@@ -24,9 +24,12 @@ from sklearn.metrics import (precision_score, recall_score, f1_score, roc_auc_sc
 from sklearn.model_selection import train_test_split
 from sklearn.utils import shuffle
 import tensorflow as tf
+import keras
+from keras import ops
+from keras import layers
 from keras.callbacks import EarlyStopping
 from keras_tuner import HyperModel, HyperParameters, BayesianOptimization
-from UN_CNN_Models import RNN_DEEP, RNN_SIMPLE, CNN_SIMPLE, CNN_DEEP, Attention_AE, SEQ_VAE
+from UN_CNN_Models import RNN_DEEP, RNN_SIMPLE, CNN_SIMPLE, CNN_DEEP, Attention_AE, SEQ_VAE, build_vae
 from AE_Aux_Func import plot_metrics_vs_threshold, plot_precision_recall_curve
 
 
@@ -369,54 +372,19 @@ def main():
 
     input_shape = X_train.shape[1:]
     # Epochs and batch size
-    epochs = 100
-    batch_size = 128
+    epochs = 150
+    batch_size = 64
 
-    # Define directories
-    current_dir = os.getcwd()
-    tuner_dir = os.path.join(current_dir, 'Bayesian_Tuning', 'SEQ_VAE')
-    project_name = 'AE_TB_' + str(batch_size) + 'bs_' + methods + '_' + str(target_frames_shape)
+    autoencoder = build_vae(input_shape, latent_dim=64)
+    autoencoder.compile(optimizer=keras.optimizers.Adam())    
 
-
-    # Define the BayesianOptimization tuner
-    tuner = BayesianOptimization(
-        hypermodel=SEQ_VAE(input_shape),
-        objective='val_loss',
-        max_trials=20,
-        executions_per_trial=1,
-        directory=tuner_dir,
-        project_name=project_name
-    )
-
+    X_Train, x_test = train_test_split(X_train, test_size=0.1)
+    X = np.concatenate([X_Train, x_test], axis=0)
+    X = np.expand_dims(X, -1).astype("float32")
     # Early stopping setup
     early_stopping = EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True, verbose=1)
-
-    # If the tuner directory exists, try to load the best trial, otherwise perform Bayesian optimization and save and load the best trial
-    try:
-        # Load the best trial
-        best_trial = tuner.oracle.get_best_trials(1)[0]
-        
-    except IndexError:
-        # Perform Bayesian optimization
-        tuner.search(X_train, X_train, epochs=epochs, batch_size=batch_size, validation_split=0.1, callbacks=[early_stopping], verbose=1)    
-        # Load the best trial
-        best_trial = tuner.oracle.get_best_trials(1)[0]
-        pass
-
-    except AttributeError as e:
-        print(f"Error while accessing best trial attributes: {e}")
-
-
-    print(f"Best trial: {best_trial.trial_id}")
-    print(f"Best trial value: {best_trial.score}")
-
-    # Best hyperparameters
-    hyperparameters = best_trial.hyperparameters
-    print(f"Best trial hyperparameters: {hyperparameters.values}")
-
-    # Build the best model using the best hyperparameters
-    autoencoder = SEQ_VAE(input_shape).build(hyperparameters)    
-
+    autoencoder.fit(X, epochs=epochs, batch_size=batch_size, callbacks=[early_stopping] ,verbose=2)
+    
     # Reconstruction and threshold finding
     start_time = time.time()
     val_predictions = autoencoder.predict(X_val)
@@ -452,7 +420,6 @@ def main():
 
     print(f"Optimal threshold: {optimal_threshold}")
     
-
     # Final evaluation on the test set
     bearing_test_predictions = autoencoder.predict(bearings_test)
     bearing_test_errors = np.mean(np.square(bearings_test - bearing_test_predictions), axis=(1,2))
@@ -546,8 +513,6 @@ def main():
     
     # Plot metrics vs threshold
     plot_metrics_vs_threshold(thresholds, f1_scores_test, accuracy_test, precisions_test, recalls_test, roc_aucs_test, optimal_threshold)
-
-    #remove_unused_trials(tuner_dir, project_name, best_trial)
-
+        
 if __name__ == "__main__":
     main()

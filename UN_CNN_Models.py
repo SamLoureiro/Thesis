@@ -2,12 +2,13 @@ import tensorflow as tf
 
 from keras.layers import (Input, Dense, BatchNormalization, Dropout, LSTM, 
                           RepeatVector, TimeDistributed, Bidirectional, Input, Conv1D, MaxPooling1D, UpSampling1D, Cropping1D, ZeroPadding1D, Add, GlobalMaxPooling1D, 
-                          Flatten, Reshape, ConvLSTM1D, MultiHeadAttention, LayerNormalization, Lambda, GaussianNoise)
+                          Flatten, Reshape, ConvLSTM1D, MultiHeadAttention, LayerNormalization, Lambda, GaussianNoise, Layer, Activation, Conv1DTranspose)
 from keras_tuner import HyperModel
 from keras.regularizers import L2, l1_l2
 from keras.models import Model, Sequential
 from keras.losses import mean_squared_error, mean_squared_logarithmic_error, mean_absolute_error
 from keras.optimizers import Adam
+from keras import metrics, random
 from keras_tuner import HyperModel, HyperParameters, BayesianOptimization
 import numpy as np
 
@@ -368,38 +369,209 @@ def Denoising_AE(input_shape, noise_factor=0.5):
     return autoencoder
 
 
-# I don't know why, but the model below is not working
 
-#def ConvLSTM_AE(input_shape):
-    inputs = Input(shape=(input_shape[0], input_shape[1], 1))
-    
-    # Encoder
-    x = ConvLSTM1D(64, 3, activation='relu', padding='same', return_sequences=True)(inputs)
+# Define the Sampling layer
+class Sampling(Layer):
+    """Uses (z_mean, z_log_var) to sample z, the vector encoding a digit."""
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.seed_generator = random.SeedGenerator(1337)
+
+    def call(self, inputs):
+        z_mean, z_log_var = inputs
+        batch = tf.shape(z_mean)[0]
+        dim = tf.shape(z_mean)[1]
+        epsilon = random.normal(shape=(batch, dim), seed=self.seed_generator)
+        return z_mean + tf.exp(0.5 * z_log_var) * epsilon
+
+def build_encoder(input_shape, latent_dim):
+    encoder_inputs = Input(shape=input_shape)
+
+    x = Conv1D(32, 3, padding="same")(encoder_inputs)
     x = BatchNormalization()(x)
-    x = ConvLSTM1D(32, 3, activation='relu', padding='same', return_sequences=True)(x)
+    x = Activation("relu")(x)
+    x = Conv1D(64, 3, padding="same")(x)
     x = BatchNormalization()(x)
-    
-    # Bottleneck
-    encoded = ConvLSTM1D(16, 3, activation='relu', padding='same', return_sequences=False)(x)    
-    bottleneck = Dense(16, activation='relu')(encoded)
-    
-    # Decoder
-    x = RepeatVector(input_shape[0])(bottleneck)
-    x = ConvLSTM1D(32, 3, activation='relu', padding='same', return_sequences=True)(x)
+    x = Activation("relu")(x)
+    x = Conv1D(128, 3, padding="same")(x)
     x = BatchNormalization()(x)
-    x = ConvLSTM1D(64, 3, activation='relu', padding='same', return_sequences=True)(x)
+    x = Activation("relu")(x)
+    x = Flatten()(x)
+    x = Dense(16, activation="relu")(x)
+    x = Dropout(0.2)(x)  # Dropout for regularization
+    z_mean = Dense(latent_dim, name="z_mean")(x)
+    z_log_var = Dense(latent_dim, name="z_log_var")(x)
+    z = Sampling()([z_mean, z_log_var])
+    return Model(encoder_inputs, [z_mean, z_log_var, z], name="encoder")
+
+def build_decoder(input_shape, latent_dim):
+    timestamps, features_per_timestamp = input_shape
+    latent_inputs = Input(shape=(latent_dim,))
+    x = Dense(timestamps // 4 * 64, activation="relu")(latent_inputs)
+    x = Reshape((timestamps // 4, 64))(x)
+    x = LSTM(64, return_sequences=True, activation="relu")(x)
+    x = Dropout(0.2)(x)  # Dropout for regularization
+    x = LSTM(32, return_sequences=True, activation="relu")(x)
+    x = Dropout(0.2)(x)  # Dropout for regularization
+    x = Conv1DTranspose(128, 3, padding="same")(x)
     x = BatchNormalization()(x)
-    
+    x = Activation("relu")(x)
+    x = Conv1DTranspose(64, 3, padding="same")(x)
+    x = BatchNormalization()(x)
+    x = Activation("relu")(x)
+    x = Conv1DTranspose(32, 3, padding="same")(x)
+    x = BatchNormalization()(x)
+    x = Activation("relu")(x)
+
     # Adjust for mismatch in temporal dimension
     crop_amount = (x.shape[1] - input_shape[0])
     if crop_amount > 0:
-        x = Cropping1D(cropping=(crop_amount // 2, crop_amount - crop_amount // 2))(x)  # Crop symmetrically
+        x = Cropping1D(cropping=(crop_amount // 2, crop_amount - crop_amount // 2))(x)
     elif crop_amount < 0:
-        x = ZeroPadding1D(padding=(-crop_amount // 2, -crop_amount + (-crop_amount // 2)))(x)  # Pad symmetrically
-    
-    decoded = ConvLSTM1D(1, 3, activation='sigmoid', padding='same', return_sequences=True)(x)
-    
-    autoencoder = Model(inputs, decoded)
-    autoencoder.compile(optimizer='adam', loss='msle')
-    
-    return autoencoder
+        x = ZeroPadding1D(padding=(-crop_amount // 2, -crop_amount - (-crop_amount // 2)))(x)
+
+    decoder_outputs = Conv1DTranspose(features_per_timestamp, 3, activation="sigmoid", padding="same")(x)
+    return Model(latent_inputs, decoder_outputs, name="decoder")
+
+class VAE(Model):
+    def __init__(self, encoder, decoder, **kwargs):
+        super().__init__(**kwargs)
+        self.encoder = encoder
+        self.decoder = decoder
+        self.total_loss_tracker = metrics.Mean(name="total_loss")
+        self.reconstruction_loss_tracker = metrics.Mean(name="reconstruction_loss")
+        self.kl_loss_tracker = metrics.Mean(name="kl_loss")
+
+    @property
+    def metrics(self):
+        return [
+            self.total_loss_tracker,
+            self.reconstruction_loss_tracker,
+            self.kl_loss_tracker,
+        ]
+
+    def call(self, inputs):
+        # Forward pass through encoder
+        z_mean, z_log_var, z = self.encoder(inputs)
+        # Forward pass through decoder
+        reconstruction = self.decoder(z)
+        return reconstruction
+
+    def train_step(self, data):
+        with tf.GradientTape() as tape:
+            z_mean, z_log_var, z = self.encoder(data)
+            reconstruction = self.decoder(z)
+            reconstruction = tf.expand_dims(reconstruction, axis=-1)  # Match target shape
+            reconstruction_loss = tf.reduce_mean(tf.square(data - reconstruction), axis=(1, 2))
+            kl_loss = -0.5 * (1 + z_log_var - tf.square(z_mean) - tf.exp(z_log_var))
+            kl_loss = tf.reduce_mean(tf.reduce_sum(kl_loss, axis=1))
+            total_loss = reconstruction_loss + kl_loss
+        grads = tape.gradient(total_loss, self.trainable_weights)
+        self.optimizer.apply_gradients(zip(grads, self.trainable_weights))
+        self.total_loss_tracker.update_state(total_loss)
+        self.reconstruction_loss_tracker.update_state(reconstruction_loss)
+        self.kl_loss_tracker.update_state(kl_loss)
+        return {
+            "loss": self.total_loss_tracker.result(),
+            "reconstruction_loss": self.reconstruction_loss_tracker.result(),
+            "kl_loss": self.kl_loss_tracker.result(),
+        }
+
+# Save a function to build and return the VAE model
+def build_vae(input_shape, latent_dim):
+    encoder = build_encoder(input_shape, latent_dim)
+    decoder = build_decoder(input_shape, latent_dim)
+    return VAE(encoder, decoder)
+
+
+
+
+class SEQ_VAE(HyperModel):
+    def __init__(self, input_shape):
+        self.input_shape = input_shape
+
+    def build(self, hp):
+        # Hyperparameters to tune
+        conv_filters_1 = hp.Int('conv_filters_1', min_value=16, max_value=64, step=16)
+        conv_filters_2 = hp.Int('conv_filters_2', min_value=32, max_value=128, step=32)
+        kernel_size_1 = hp.Int('kernel_size_1', min_value=2, max_value=5, step=1)
+        kernel_size_2 = hp.Int('kernel_size_2', min_value=2, max_value=5, step=1)
+        lstm_units_1 = hp.Int('lstm_units_1', min_value=32, max_value=128, step=32)
+        dropout_rate_1 = hp.Float('dropout_rate_1', min_value=0.1, max_value=0.5, step=0.1)
+        lstm_units_2 = hp.Int('lstm_units_2', min_value=16, max_value=64, step=16)
+        latent_dim = hp.Int('latent_dim', min_value=8, max_value=32, step=8)
+        lstm_units_3 = hp.Int('lstm_units_3', min_value=16, max_value=64, step=16)
+        dropout_rate_2 = hp.Float('dropout_rate_2', min_value=0.1, max_value=0.5, step=0.1)
+        conv_filters_3 = hp.Int('conv_filters_3', min_value=32, max_value=128, step=32)
+        conv_filters_4 = hp.Int('conv_filters_4', min_value=16, max_value=64, step=16)
+        kernel_size_3 = hp.Int('kernel_size_3', min_value=2, max_value=5, step=1)
+        kernel_size_4 = hp.Int('kernel_size_4', min_value=2, max_value=5, step=1)
+        learning_rate = hp.Float('learning_rate', min_value=1e-4, max_value=1e-2, sampling='log')
+
+        timestamps = self.input_shape[0]
+        features_per_timestamp = self.input_shape[1]
+        encoder_inputs = Input(shape=self.input_shape)
+
+        # Encoder
+        x = Conv1D(conv_filters_1, kernel_size=kernel_size_1, activation='relu', padding='same')(encoder_inputs)
+        x = Conv1D(conv_filters_2, kernel_size=kernel_size_2, activation='relu', padding='same')(x)
+        x = BatchNormalization()(x)
+        x = Flatten()(x)
+
+        # LSTM layers
+        x = Reshape((timestamps, conv_filters_2))(x)
+        x = Bidirectional(LSTM(lstm_units_1, return_sequences=True))(x)
+        x = Dropout(dropout_rate_1)(x)
+        x = LSTM(lstm_units_2)(x)
+
+        # Latent space
+        z_mean = Dense(latent_dim)(x)
+        z_log_var = Dense(latent_dim)(x)
+
+        def sampling(args):
+            z_mean, z_log_var = args
+            epsilon = tf.random.normal(shape=tf.shape(z_mean), mean=0., stddev=1.)
+            return z_mean + tf.exp(z_log_var / 2) * epsilon
+
+        z = Lambda(sampling)([z_mean, z_log_var])
+        encoder = Model(encoder_inputs, [z_mean, z_log_var, z], name='encoder')
+
+        # Decoder
+        latent_inputs = Input(shape=(latent_dim,))
+        x = Dense(timestamps * conv_filters_2)(latent_inputs)
+        x = Reshape((timestamps, conv_filters_2))(x)
+
+        # LSTM layers
+        x = LSTM(lstm_units_2, return_sequences=True)(x)
+        x = Dropout(dropout_rate_2)(x)
+        x = Bidirectional(LSTM(lstm_units_3, return_sequences=True))(x)
+
+        # Convolutional layers
+        x = Reshape((timestamps, lstm_units_3*2))(x)
+        x = Conv1D(conv_filters_3, kernel_size=kernel_size_3, activation='relu', padding='same')(x)
+        x = Conv1D(conv_filters_4, kernel_size=kernel_size_4, activation='relu', padding='same')(x)
+        decoder_outputs = TimeDistributed(Dense(features_per_timestamp))(x)
+        decoder = Model(latent_inputs, decoder_outputs, name='decoder')
+
+        # VAE Outputs
+        vae_outputs = decoder(encoder(encoder_inputs)[2])
+        # Custom loss layer
+        class VAELossLayer(Layer):
+            def call(self, inputs):
+                encoder_inputs, vae_outputs, z_mean, z_log_var = inputs
+                reconstruction_loss = mse(encoder_inputs, vae_outputs)
+                #reconstruction_loss = tf.reduce_mean(tf.square(encoder_inputs - vae_outputs), axis=(1,2))
+                reconstruction_loss *= timestamps * features_per_timestamp
+                kl_loss = 1 + z_log_var - tf.square(z_mean) - tf.exp(z_log_var)
+                kl_loss = tf.reduce_mean(kl_loss)
+                kl_loss *= -0.5
+                vae_loss = tf.reduce_mean(reconstruction_loss + kl_loss)
+                self.add_loss(vae_loss)
+                return vae_outputs
+
+        vae_loss_layer = VAELossLayer()([encoder_inputs, vae_outputs, z_mean, z_log_var])
+        vae = Model(encoder_inputs, vae_loss_layer, name='vae')
+        vae.compile(optimizer=Adam(learning_rate=learning_rate))
+
+        return vae
