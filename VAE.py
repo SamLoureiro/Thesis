@@ -11,6 +11,7 @@ Developer Notes:
 import os
 import time
 import numpy as np
+import warnings
 import pandas as pd
 import librosa
 import matplotlib.pyplot as plt
@@ -65,7 +66,7 @@ def load_files(directory, file_extension):
         key=sort_key
     )
 
-def proc_audio(audio_file, n_fft=2048, hop_length=1024, num_samples=50, mfcc=True, stft=True):
+def proc_audio(audio_file, n_fft=2048, hop_length=512, num_samples=50, mfcc=True, stft=True):
     """Compute the Short-Time Fourier Transform (STFT), Mel-Frequency Cepstral Coefficients (MFCC), and resample accelerometer data."""
     audio, sr = librosa.load(audio_file, sr=192000)
     stft_matrix = librosa.stft(audio, n_fft=n_fft, hop_length=hop_length)
@@ -79,15 +80,38 @@ def proc_audio(audio_file, n_fft=2048, hop_length=1024, num_samples=50, mfcc=Tru
         #print("Average Magnitude Shape: ", avg_magnitude.shape)
         #print("Standard Deviation Magnitude Shape: ", std_magnitude.shape)
     
-    if mfcc:
+    if mfcc:        
+        # Find the number of Mel filter banks that can be computed without any empty filters
+        # Unccomment the following code if the samples proprietaries are not known, or the pre-processing parameters were changed
+        n_mels = 100
+        mfcc_computed = False
+        while not mfcc_computed:
+            try:
+                with warnings.catch_warnings(record=True) as w:
+                    warnings.simplefilter("always")
+                    # Mel-frequency filter bank
+                    mel_spectrogram = librosa.feature.melspectrogram(y=audio, sr=sr, n_fft=n_fft, n_mels=n_mels, fmin=500, fmax=85000, window=librosa.filters.get_window('hann', n_fft), power=2.0)
+                    
+                    if len(w) > 0 and any("Empty filters detected" in str(warning.message) for warning in w):
+                        raise librosa.util.exceptions.ParameterError("Empty filters detected")
+                    mfcc_computed = True
+            
+            except librosa.util.exceptions.ParameterError as e:
+                if 'Empty filters detected' in str(e):
+                    n_mels -= 1  # Reduce n_mels and try again
+                    print(f"Reducing n_mels to {n_mels} and retrying...")
+                    if n_mels < 1:
+                        raise ValueError("Unable to compute MFCCs with given parameters.")
+                else:
+                    raise  # Re-raise any other exceptions
         # Mel spectrogram       
-        mel_spectrogram = librosa.feature.melspectrogram(y=audio, sr=sr, n_fft=n_fft, n_mels=50, fmin=500, fmax=85000, window=librosa.filters.get_window('hann', n_fft), power=2.0)
+        mel_spectrogram = librosa.feature.melspectrogram(y=audio, sr=sr, n_fft=n_fft, n_mels=n_mels, fmin=500, fmax=85000, window=librosa.filters.get_window('hann', n_fft), power=2.0)
         
         # Convert to dB scale
         mel_spectrogram = librosa.power_to_db(mel_spectrogram, ref=np.max)
 
         # MFCCs
-        mfccs = librosa.feature.mfcc(S=mel_spectrogram, n_mfcc=40, n_mels=106, fmin=500, fmax=85000)
+        mfccs = librosa.feature.mfcc(S=mel_spectrogram, n_mfcc=40, n_mels=n_mels, fmin=500, fmax=85000)
         #print("MFCC Magnitude Shape: ", mfccs.shape)
         avg_magnitude_mfcc, std_magnitude_mfcc = apply_moving_average(mfccs, num_samples)
         #print("Average MFCC Magnitude Shape: ", avg_magnitude_mfcc.shape)

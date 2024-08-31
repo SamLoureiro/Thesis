@@ -397,7 +397,11 @@ def build_encoder(input_shape, latent_dim):
     x = Conv1D(128, 3, padding="same")(x)
     x = BatchNormalization()(x)
     x = Activation("relu")(x)
-    x = Flatten()(x)
+    
+    # Adding LSTM layers
+    x = LSTM(64, return_sequences=True)(x)
+    x = LSTM(32)(x)
+    
     x = Dense(16, activation="relu")(x)
     x = Dropout(0.2)(x)  # Dropout for regularization
     z_mean = Dense(latent_dim, name="z_mean")(x)
