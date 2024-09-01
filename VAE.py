@@ -29,9 +29,9 @@ import keras
 from keras import ops
 from keras import layers
 from keras.callbacks import EarlyStopping
-from keras_tuner import HyperModel, HyperParameters, BayesianOptimization
-from UN_CNN_Models import RNN_DEEP, RNN_SIMPLE, CNN_SIMPLE, CNN_DEEP, Attention_AE, SEQ_VAE, build_vae
-from AE_Aux_Func import plot_metrics_vs_threshold, plot_precision_recall_curve
+from keras_tuner import HyperModel, HyperParameters, BayesianOptimization, Hyperband
+from UN_CNN_Models import RNN_DEEP, RNN_SIMPLE, CNN_SIMPLE, CNN_DEEP, Attention_AE, SEQ_VAE, build_vae, vae_model_builder
+from AE_Aux_Func import plot_metrics_vs_threshold, plot_precision_recall_curve, find_optimal_threshold_f1
 
 
 
@@ -85,7 +85,7 @@ def proc_audio(audio_file, n_fft=2048, hop_length=512, num_samples=50, mfcc=True
         # Unccomment the following code if the samples proprietaries are not known, or the pre-processing parameters were changed
         n_mels = 100
         mfcc_computed = False
-        while not mfcc_computed:
+        '''while not mfcc_computed:
             try:
                 with warnings.catch_warnings(record=True) as w:
                     warnings.simplefilter("always")
@@ -103,7 +103,7 @@ def proc_audio(audio_file, n_fft=2048, hop_length=512, num_samples=50, mfcc=True
                     if n_mels < 1:
                         raise ValueError("Unable to compute MFCCs with given parameters.")
                 else:
-                    raise  # Re-raise any other exceptions
+                    raise  # Re-raise any other exceptions'''
         # Mel spectrogram       
         mel_spectrogram = librosa.feature.melspectrogram(y=audio, sr=sr, n_fft=n_fft, n_mels=n_mels, fmin=500, fmax=85000, window=librosa.filters.get_window('hann', n_fft), power=2.0)
         
@@ -394,21 +394,57 @@ def main():
     
     # Model building and training
 
-    input_shape = X_train.shape[1:]
     # Epochs and batch size
     epochs = 150
     batch_size = 64
 
-    autoencoder = build_vae(input_shape, latent_dim=64)
-    autoencoder.compile(optimizer=keras.optimizers.Adam())    
-
-    X_Train, x_test = train_test_split(X_train, test_size=0.1)
-    X = np.concatenate([X_Train, x_test], axis=0)
-    X = np.expand_dims(X, -1).astype("float32")
+    X_train_reshaphed = np.expand_dims(X_train, -1).astype("float32")
+    
+    input_shape = X_train.shape[1:]
+    
+    # Define directories
+    current_dir = os.getcwd()
+    tuner_dir = os.path.join(current_dir, 'Hyperband_Tuning', 'VAE')
+    project_name = 'AE_TB_' + str(batch_size) + 'bs_' + methods + '_' + str(target_frames_shape)
+    
+    tuner = Hyperband(lambda hp: vae_model_builder(hp, input_shape=input_shape),
+                     objective='loss',
+                     max_epochs=epochs,
+                     factor=3,
+                     directory=tuner_dir,
+                     project_name=project_name)
+    
     # Early stopping setup
     early_stopping = EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True, verbose=1)
-    autoencoder.fit(X, epochs=epochs, batch_size=batch_size, callbacks=[early_stopping] ,verbose=2)
+        
+    # If the tuner directory exists, try to load the best trial, otherwise perform Bayesian optimization and save and load the best trial
+    try:
+        # Load the best trial
+        best_trial = tuner.oracle.get_best_trials(1)[0]
+        # Load the best model
+        autoencoder = tuner.get_best_models(num_models=1)[0]
+        
+    except IndexError:
+        # Perform Bayesian optimization
+        tuner.search(X_train_reshaphed, X_train_reshaphed, epochs=epochs, batch_size=batch_size, callbacks=[early_stopping], validation_split=0.1, verbose=1)
+        # Load the best trial
+        best_trial = tuner.oracle.get_best_trials(1)[0]
+        # Alternatively, you can directly get the best model
+        autoencoder = tuner.get_best_models(num_models=1)[0]
+        pass
+
+    except AttributeError as e:
+        print(f"Error while accessing best trial attributes: {e}")
     
+
+    print(f"Best trial: {best_trial.trial_id}")
+    print(f"Best trial value: {best_trial.score}")
+
+    # Best hyperparameters
+    hyperparameters = best_trial.hyperparameters
+    print(f"Best trial hyperparameters: {hyperparameters.values}")
+
+   
     # Reconstruction and threshold finding
     start_time = time.time()
     val_predictions = autoencoder.predict(X_val)
@@ -437,10 +473,12 @@ def main():
     diff = abs(precision - recall)
 
     # Find the index of the minimum difference
-    optimal_idx = np.argmin(diff)
+    optimal_idx = np.argmin(diff)   
 
     # Get the optimal threshold
     optimal_threshold = thresholds[optimal_idx]
+    
+    #optimal_threshold = find_optimal_threshold_f1(combined_errors, combined_labels)
 
     print(f"Optimal threshold: {optimal_threshold}")
     
@@ -513,8 +551,8 @@ def main():
     # Thresholds vs metrics
     
     # Use the IQR method to filter out outliers
-    Q1 = np.percentile(combined_test_errors, 25)
-    Q3 = np.percentile(combined_test_errors, 75)
+    Q1 = np.percentile(combined_test_errors, 5)
+    Q3 = np.percentile(combined_test_errors, 95)
     IQR = Q3 - Q1
     lower_bound = Q1 - 1.5 * IQR
     upper_bound = Q3 + 1.5 * IQR
