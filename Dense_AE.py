@@ -24,10 +24,11 @@ from keras.callbacks import EarlyStopping
 from keras.layers import Input, Dense, BatchNormalization, Dropout, Lambda
 from keras.models import Model
 from keras.optimizers import Adam
-from keras_tuner import HyperModel, HyperParameters, BayesianOptimization
+from keras_tuner import HyperModel, HyperParameters, BayesianOptimization, Hyperband
 import matplotlib.pyplot as plt
 import seaborn as sns
 import PreProc_Function as ppf
+from UN_CNN_Models import VDAE, vdae_model_builder
 from AE_Aux_Func import reduce_dimensions, plot_reduced_data, plot_metrics_vs_threshold, find_optimal_threshold_f1
 
 
@@ -244,19 +245,28 @@ def main():
 
     input_shape = X_train.shape[1]
     
+    print("First sample in the training set:")
+    print(X_train[0])
+    
+    print("Number of NaN is dataset ", np.count_nonzero(np.isnan(input_shape)))
+    
     print(f"Input shape: {input_shape}")
     
     # Epochs and batch size
     epochs = 100
     batch_size = 32
+    latent_dim = 8
 
     # Define directories
     current_dir = os.getcwd()
-    tuner_dir = os.path.join(current_dir, 'Bayesian_Tuning', 'DENSE')
+    tuner_dir = os.path.join(current_dir, 'Hyperband_Tuning', 'VAE_DENSE')
     project_name = 'AE_TB_' + str(batch_size) + 'bs_' + pre_proc_string
 
+    
+    # Early stopping setup
+    early_stopping = EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True, verbose=1)
 
-    # Define the BayesianOptimization tuner
+    '''# Define the BayesianOptimization tuner
     tuner = BayesianOptimization(
         hypermodel=DENSE(input_shape),
         objective='val_loss',
@@ -266,24 +276,31 @@ def main():
         project_name=project_name
     )
 
-    # Early stopping setup
-    early_stopping = EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True, verbose=1)
-
-    # If the tuner directory exists, try to load the best trial, otherwise perform Bayesian optimization and save and load the best trial
+    tuner = Hyperband(lambda hp: vdae_model_builder(hp, input_shape=input_shape),
+                    objective='val_loss',
+                    max_epochs=epochs,
+                    factor=3,
+                    directory=tuner_dir,
+                    project_name=project_name)
+    
     try:
-        # Load the best trial
-        best_trial = tuner.oracle.get_best_trials(1)[0]
-        
+        # Attempt to load the best model
+        autoencoder = tuner.get_best_models(num_models=1)[0]
     except IndexError:
+        # Handle the case where no best model is available
+        print("No best model found. Performing search.")
+
         # Perform Bayesian optimization
-        tuner.search(X_train, X_train, epochs=epochs, batch_size=batch_size, validation_split=0.1, callbacks=[early_stopping], verbose=1)    
-        # Load the best trial
-        best_trial = tuner.oracle.get_best_trials(1)[0]
-        pass
-
-    except AttributeError as e:
-        print(f"Error while accessing best trial attributes: {e}")
-
+        tuner.search(X_train, X_train, epochs=epochs, batch_size=batch_size, callbacks=[early_stopping], validation_split=0.1, verbose=1)
+        
+        # Try again to get the best model after the search
+        try:
+            autoencoder = tuner.get_best_models(num_models=1)[0]
+        except IndexError:
+            print("Search completed, but no best model was found.")
+            exit(1)
+    
+    best_trial = tuner.oracle.get_best_trials(1)[0]
 
     print(f"Best trial: {best_trial.trial_id}")
     print(f"Best trial value: {best_trial.score}")
@@ -293,7 +310,14 @@ def main():
     print(f"Best trial hyperparameters: {hyperparameters.values}")
 
     # Build the best model using the best hyperparameters
-    autoencoder = DENSE(input_shape).build(hyperparameters)
+    autoencoder = DENSE(input_shape).build(hyperparameters)'''
+    
+       
+    # Build the model
+    autoencoder = vdae_model_builder(input_shape, latent_dim)
+    
+    # Train the model
+    autoencoder.fit(X_train, X_train, epochs=epochs, batch_size=batch_size, callbacks=[early_stopping], validation_data=(X_val, X_val), verbose=1)
     
     # Reconstruction and threshold finding
     start_time = time.time()
@@ -328,6 +352,8 @@ def main():
 
     # Get the optimal threshold
     optimal_threshold = thresholds[optimal_idx]
+    
+    optimal_threshold = 0.4548
     
     #optimal_threshold = 0.837   
     print(f"Optimal Threshold: {optimal_threshold:.3f}")
@@ -407,16 +433,7 @@ def main():
         
     # Thresholds vs metrics
     
-    # Use the IQR method to filter out outliers
-    Q1 = np.percentile(combined_test_errors, 25)
-    Q3 = np.percentile(combined_test_errors, 75)
-    IQR = Q3 - Q1
-    lower_bound = Q1 - 1.5 * IQR
-    upper_bound = Q3 + 1.5 * IQR
-    filtered_errors = combined_test_errors[(combined_test_errors >= lower_bound) & (combined_test_errors <= upper_bound)]
-
-    # Generate thresholds within the filtered range
-    thresholds = np.linspace(min(filtered_errors), max(filtered_errors), 100)
+    thresholds = np.linspace(min(combined_errors), max(combined_errors), 100)
     f1_scores_test = []
     precisions_test = []
     recalls_test = []
@@ -433,7 +450,7 @@ def main():
     # Plot metrics vs threshold
     plot_metrics_vs_threshold(thresholds, f1_scores_test, accuracy_test, precisions_test, recalls_test, roc_aucs_test, optimal_threshold)
 
-    remove_unused_trials(tuner_dir, project_name, best_trial)
+    #remove_unused_trials(tuner_dir, project_name, best_trial)
     
 if __name__ == "__main__":
     main()

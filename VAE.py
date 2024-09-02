@@ -30,7 +30,7 @@ from keras import ops
 from keras import layers
 from keras.callbacks import EarlyStopping
 from keras_tuner import HyperModel, HyperParameters, BayesianOptimization, Hyperband
-from UN_CNN_Models import RNN_DEEP, RNN_SIMPLE, CNN_SIMPLE, CNN_DEEP, Attention_AE, SEQ_VAE, build_vae, vae_model_builder
+from UN_CNN_Models import RNN_DEEP, RNN_SIMPLE, CNN_SIMPLE, CNN_DEEP, Attention_AE, vae_model_builder
 from AE_Aux_Func import plot_metrics_vs_threshold, plot_precision_recall_curve, find_optimal_threshold_f1
 
 
@@ -380,6 +380,9 @@ def main():
     bearings_train_labels = bearings_train_labels[:95]
     bearings_test_labels = bearings_test_labels[:95]
     
+    only_bearings_eval = bearings_train[95:] + bearings_test[95:]
+    only_bearings_eval_labels = bearings_train_labels[95:] + bearings_test_labels[95:]
+    
     
     bearings_train_labels_ae = np.ones(len(bearings_train_labels))
     bearings_test_labels_ae = np.ones(len(bearings_test_labels)) 
@@ -402,7 +405,10 @@ def main():
     
     input_shape = X_train.shape[1:]
     
-    # Define directories
+    # Early stopping setup
+    early_stopping = EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True, verbose=1)
+    
+    '''# Define directories
     current_dir = os.getcwd()
     tuner_dir = os.path.join(current_dir, 'Hyperband_Tuning', 'VAE')
     project_name = 'AE_TB_' + str(batch_size) + 'bs_' + methods + '_' + str(target_frames_shape)
@@ -414,8 +420,7 @@ def main():
                      directory=tuner_dir,
                      project_name=project_name)
     
-    # Early stopping setup
-    early_stopping = EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True, verbose=1)
+
         
     # If the tuner directory exists, try to load the best trial, otherwise perform Bayesian optimization and save and load the best trial
     try:
@@ -442,8 +447,13 @@ def main():
 
     # Best hyperparameters
     hyperparameters = best_trial.hyperparameters
-    print(f"Best trial hyperparameters: {hyperparameters.values}")
-
+    print(f"Best trial hyperparameters: {hyperparameters.values}")'''
+    
+    # Build the model
+    autoencoder = vae_model_builder(input_shape=input_shape, latent_dim=16)
+    
+    # Train the model
+    autoencoder.fit(X_train_reshaphed, X_train_reshaphed, epochs=epochs, batch_size=batch_size, callbacks=[early_stopping], validation_split=0.1, verbose=1)    
    
     # Reconstruction and threshold finding
     start_time = time.time()
@@ -466,7 +476,7 @@ def main():
     combined_errors = np.concatenate([val_errors, bearing_val_errors])
     combined_labels = np.concatenate([y_val_binary, y_bearing_binary])
 
-    # Calculate precision, recall, and thresholds
+    '''# Calculate precision, recall, and thresholds
     precision, recall, thresholds = precision_recall_curve(combined_labels, combined_errors)
 
     # Calculate the absolute difference between precision and recall
@@ -476,9 +486,18 @@ def main():
     optimal_idx = np.argmin(diff)   
 
     # Get the optimal threshold
-    optimal_threshold = thresholds[optimal_idx]
+    optimal_threshold = thresholds[optimal_idx]'''
     
     #optimal_threshold = find_optimal_threshold_f1(combined_errors, combined_labels)
+    
+    # Calculate ROC curve
+    fpr, tpr, thresholds = roc_curve(combined_labels, combined_errors)
+
+    # Find the optimal threshold
+    optimal_idx = np.argmax(tpr - fpr)  # This gives you the threshold with the maximum difference between TPR and FPR
+    optimal_threshold = thresholds[optimal_idx]
+
+    print(f"Optimal Threshold (ROC): {optimal_threshold}")
 
     print(f"Optimal threshold: {optimal_threshold}")
     
@@ -548,18 +567,17 @@ def main():
     plt.title('Confusion Matrix')
     plt.show()
     
-    # Thresholds vs metrics
+    '''# Final test with left over bearing samples
+    only_bearings_eval_predictions = autoencoder.predict(only_bearings_eval)
+    only_bearings_eval_errors = np.mean(np.square(only_bearings_eval - only_bearings_eval_predictions), axis=(1,2))
+    detected_anomalies = (only_bearings_eval_errors > optimal_threshold).astype(int)
+    detected_anomalies_per = detected_anomalies / len(only_bearings_eval)
+    print(f"Detected Anomalies: {detected_anomalies}")
+    print(f"Detected Anomalies Percentage: {detected_anomalies_per}")  '''
     
-    # Use the IQR method to filter out outliers
-    Q1 = np.percentile(combined_test_errors, 5)
-    Q3 = np.percentile(combined_test_errors, 95)
-    IQR = Q3 - Q1
-    lower_bound = Q1 - 1.5 * IQR
-    upper_bound = Q3 + 1.5 * IQR
-    filtered_errors = combined_test_errors[(combined_test_errors >= lower_bound) & (combined_test_errors <= upper_bound)]
-
-    # Generate thresholds within the filtered range
-    thresholds = np.linspace(min(filtered_errors), max(filtered_errors), 100)
+    
+    # Thresholds vs metrics
+    thresholds = np.linspace(min(combined_errors), max(combined_errors), 100)
     f1_scores_test = []
     precisions_test = []
     recalls_test = []
