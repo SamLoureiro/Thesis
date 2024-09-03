@@ -370,22 +370,35 @@ def main():
     damaged_bearing_labels = np.array([2] * damaged_bearing_samples.shape[0])   
     
     # Split noise data into training and validation sets
-    X_train, X_val, y_train, y_val = train_test_split(noise_samples, noise_labels, test_size=0.1, random_state=42)
+    X_train, X_val_complete, y_train, y_val_complete = train_test_split(noise_samples, noise_labels, test_size=0.1, random_state=42)
     
     # Further split labeled anomalies into validation and test sets
-    bearings_train, bearings_test, bearings_train_labels, bearings_test_labels = train_test_split(bearings_samples, bearings_labels, test_size=0.5, random_state=42)
+    bearings_val_complete, bearings_test_complete, bearings_val_labels_complete, bearings_test_labels_complete = train_test_split(bearings_samples, bearings_labels, test_size=0.5, random_state=42)
     
-    bearings_train = bearings_train[:95]
-    bearings_test = bearings_test[:95]
-    bearings_train_labels = bearings_train_labels[:95]
-    bearings_test_labels = bearings_test_labels[:95]
+    val_size = min(len(X_val_complete), len(bearings_val_complete))
     
-    only_bearings_eval = bearings_train[95:] + bearings_test[95:]
-    only_bearings_eval_labels = bearings_train_labels[95:] + bearings_test_labels[95:]
+    X_val = X_val_complete[:val_size]
+    y_val = y_val_complete[:val_size]
+    
+    # In an ideal situation, the test set should be independent of the training and validation sets. 
+    # However, due to the lack of noise data, the noise test set is created with random samples from the the dataset.
+    test_size = min(len(bearings_test_labels_complete), len(noise_labels))
+    
+    # Force the test set and val set to be balanced to avoid class imbalance and bias in the evaluation and threshold parameterization
+    bearings_val = bearings_val_complete[:val_size]
+    bearings_test = bearings_test_complete[:test_size]
+    bearings_val_labels = bearings_val_labels_complete[:val_size]
+    bearings_test_labels = bearings_test_labels_complete[:test_size]
+    
+    # The remaining bearing samples are used for the final evaluation
+    # The remaining bearing samples are used for the final evaluation
+    only_bearings_eval = np.concatenate((bearings_val_complete[val_size:], bearings_test_complete[test_size:]))
+    only_bearings_eval_labels = np.concatenate((bearings_val_labels[val_size:], bearings_test_labels[test_size:]))
     
     
-    bearings_train_labels_ae = np.ones(len(bearings_train_labels))
+    bearings_val_labels_ae = np.ones(len(bearings_val_labels))
     bearings_test_labels_ae = np.ones(len(bearings_test_labels)) 
+    bearings_eval_labels_ae = np.ones(len(only_bearings_eval_labels))
     
     # X_train and X_val shape: (number of samples, 50, 2143) - where:
 
@@ -464,8 +477,8 @@ def main():
     val_errors = np.mean(np.square(X_val - val_predictions), axis=(1,2))
 
     # Get the reconstruction error on the labeled validation anomalies
-    bearing_val_predictions = autoencoder.predict(bearings_train)
-    bearing_val_errors = np.mean(np.square(bearings_train - bearing_val_predictions), axis=(1,2))
+    bearing_val_predictions = autoencoder.predict(bearings_val)
+    bearing_val_errors = np.mean(np.square(bearings_val - bearing_val_predictions), axis=(1,2))
     
     # Tune the threshold based on precision-recall curve
     # Labels for the validation set should be all 0 (normal) and for the labeled validation anomalies should be 1 (anomalous)
@@ -506,6 +519,7 @@ def main():
     bearing_test_errors = np.mean(np.square(bearings_test - bearing_test_predictions), axis=(1,2))
 
     # Randomly select a predefined number of noise samples to include in the test set
+    # In an ideal situation, this set would be independent set, i.e., not used for training or validation
     predefined_noise_samples_count = len(bearings_test)  # Set the desired number of noise samples
     random_noise_indices = np.random.choice(noise_samples.shape[0], predefined_noise_samples_count, replace=False)
     selected_noise_samples = noise_samples[random_noise_indices]
@@ -567,13 +581,15 @@ def main():
     plt.title('Confusion Matrix')
     plt.show()
     
-    '''# Final test with left over bearing samples
+    # Final test with left over bearing samples
+    print("Final Evaluation:")
     only_bearings_eval_predictions = autoencoder.predict(only_bearings_eval)
     only_bearings_eval_errors = np.mean(np.square(only_bearings_eval - only_bearings_eval_predictions), axis=(1,2))
-    detected_anomalies = (only_bearings_eval_errors > optimal_threshold).astype(int)
+    detected_labels = (only_bearings_eval_errors > optimal_threshold).astype(int)
+    detected_anomalies = np.count_nonzero(detected_labels)
     detected_anomalies_per = detected_anomalies / len(only_bearings_eval)
     print(f"Detected Anomalies: {detected_anomalies}")
-    print(f"Detected Anomalies Percentage: {detected_anomalies_per}")  '''
+    print(f"Detected Anomalies Percentage: {detected_anomalies_per}")
     
     
     # Thresholds vs metrics
