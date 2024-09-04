@@ -19,7 +19,7 @@ import seaborn as sns
 import shutil
 from scipy import interpolate
 from scipy.signal.windows import hann
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from sklearn.metrics import (precision_score, recall_score, f1_score, roc_auc_score, 
                              confusion_matrix, accuracy_score, roc_curve, classification_report, precision_recall_curve)
 from sklearn.model_selection import train_test_split
@@ -67,7 +67,7 @@ def load_files(directory, file_extension):
     )
 
 def proc_audio(audio_file, n_fft=2048, hop_length=512, num_samples=50, mfcc=True, stft=True):
-    """Compute the Short-Time Fourier Transform (STFT), Mel-Frequency Cepstral Coefficients (MFCC), and resample accelerometer data."""
+    """Compute the Short-Time Fourier Transform (STFT), Mel-Frequency Cepstral Coefficients (MFCC), FFT, and resample accelerometer data."""
     audio, sr = librosa.load(audio_file, sr=192000)
     stft_matrix = librosa.stft(audio, n_fft=n_fft, hop_length=hop_length)
     magnitude = np.abs(stft_matrix)
@@ -82,8 +82,8 @@ def proc_audio(audio_file, n_fft=2048, hop_length=512, num_samples=50, mfcc=True
     
     if mfcc:        
         # Find the number of Mel filter banks that can be computed without any empty filters
-        # Unccomment the following code if the samples proprietaries are not known, or the pre-processing parameters were changed
-        n_mels = 100
+        # Uncomment the following code if the samples properties are not known, or the pre-processing parameters were changed
+        n_mels = 106
         mfcc_computed = False
         '''while not mfcc_computed:
             try:
@@ -117,11 +117,8 @@ def proc_audio(audio_file, n_fft=2048, hop_length=512, num_samples=50, mfcc=True
         #print("Average MFCC Magnitude Shape: ", avg_magnitude_mfcc.shape)
         #print("Standard Deviation MFCC Magnitude Shape: ", std_magnitude_mfcc.shape)
     
-    
-    # Print shapes for debugging
-    #print("Shapes: ", avg_magnitude.shape, std_magnitude.shape, avg_magnitude_mfcc.shape, std_magnitude_mfcc.shape)
-    
     return avg_magnitude, std_magnitude, avg_magnitude_mfcc, std_magnitude_mfcc
+
 
 
 
@@ -211,108 +208,63 @@ def preprocess_data(stft=True, mfcc=True, target_frames=50):
     
     # Process data
     audio_stft_avg_features, audio_stft_std_features, audio_mfcc_avg_features, audio_mfcc_std_features, accel_features, labels = [], [], [], [], [], []
-    
-    start_time_pre_proc = time.time()
-    
-    # Process noise data
-    for audio_file, accel_file in zip(noise_audio, noise_accel):        
-        avg_magnitude, std_magnitude, avg_mfcc, std_mfcc = proc_audio(audio_file, stft=stft, mfcc=mfcc, num_samples=target_frames)
-        if stft and mfcc:            
-            audio_stft_avg_features.append(avg_magnitude)
-            audio_stft_std_features.append(std_magnitude)
-            audio_mfcc_avg_features.append(avg_mfcc)
-            audio_mfcc_std_features.append(std_mfcc)
-        elif stft:
-            audio_stft_avg_features.append(avg_magnitude)
-            audio_stft_std_features.append(std_magnitude)
-        elif mfcc:
-            audio_mfcc_avg_features.append(avg_mfcc)
-            audio_mfcc_std_features.append(std_mfcc)
 
-        accel_features.append(extract_raw_accel_features(accel_file, target_frames=target_frames))
-        labels.append(0)
-    
-    # Process good bearing data
-    for audio_file, accel_file in zip(good_bearing_audio, good_bearing_accel):
+    start_time_pre_proc = time.time()
+
+    # Process all data
+    for audio_file, accel_file, label in zip(noise_audio + good_bearing_audio + damaged_bearing_audio,
+                                            noise_accel + good_bearing_accel + damaged_bearing_accel,
+                                            [0] * len(noise_audio) + [1] * len(good_bearing_audio) + [2] * len(damaged_bearing_audio)):
         avg_magnitude, std_magnitude, avg_mfcc, std_mfcc = proc_audio(audio_file, stft=stft, mfcc=mfcc, num_samples=target_frames)
-        if stft and mfcc:
-            audio_stft_avg_features.append(avg_magnitude)
-            audio_stft_std_features.append(std_magnitude)
-            audio_mfcc_avg_features.append(avg_mfcc)
-            audio_mfcc_std_features.append(std_mfcc)
-        elif stft:
-            audio_stft_avg_features.append(avg_magnitude)
-            audio_stft_std_features.append(std_magnitude)
-        elif mfcc:
-            audio_mfcc_avg_features.append(avg_mfcc)
-            audio_mfcc_std_features.append(std_mfcc)
         
+        # Append features only if the corresponding option is enabled
+        if stft:
+            audio_stft_avg_features.append(avg_magnitude)
+            audio_stft_std_features.append(std_magnitude)
+        
+        if mfcc:
+            audio_mfcc_avg_features.append(avg_mfcc)
+            audio_mfcc_std_features.append(std_mfcc)
+                
         accel_features.append(extract_raw_accel_features(accel_file, target_frames=target_frames))
-        labels.append(1)
-        
-    # Process damaged bearing data
-    for audio_file, accel_file in zip(damaged_bearing_audio, damaged_bearing_accel):
-        avg_magnitude, std_magnitude, avg_mfcc, std_mfcc = proc_audio(audio_file, stft=stft, mfcc=mfcc, num_samples=target_frames)
-        if stft and mfcc:
-            audio_stft_avg_features.append(avg_magnitude)
-            audio_stft_std_features.append(std_magnitude)
-            audio_mfcc_avg_features.append(avg_mfcc)
-            audio_mfcc_std_features.append(std_mfcc)
-        elif stft:
-            audio_stft_avg_features.append(avg_magnitude)
-            audio_stft_std_features.append(std_magnitude)
-        elif mfcc:
-            audio_mfcc_avg_features.append(avg_mfcc)
-            audio_mfcc_std_features.append(std_mfcc)
-        
-        accel_features.append(extract_raw_accel_features(accel_file, target_frames=target_frames))
-        labels.append(2)
-    
+        labels.append(label)
+
     end_time_pre_proc = time.time()
-    
     pre_proc_time = end_time_pre_proc - start_time_pre_proc
+
+    # Convert lists to numpy arrays
+    accel_features = np.array(accel_features)
+
+    if stft:
+        audio_stft_avg_features = np.array(audio_stft_avg_features).transpose(0, 2, 1)
+        audio_stft_std_features = np.array(audio_stft_std_features).transpose(0, 2, 1)
+
+    if mfcc:
+        audio_mfcc_avg_features = np.array(audio_mfcc_avg_features).transpose(0, 2, 1)
+        audio_mfcc_std_features = np.array(audio_mfcc_std_features).transpose(0, 2, 1)
+
+    # Concatenate features
+    feature_list = [accel_features]
+    methods_string = "only_accel"
+
+    if stft:
+        feature_list.extend([audio_stft_avg_features, audio_stft_std_features])
+        methods_string += "_stft"
+
+    if mfcc:
+        feature_list.extend([audio_mfcc_avg_features, audio_mfcc_std_features])
+        methods_string += "_mfcc"
+
+    combined_features = np.concatenate(feature_list, axis=2)
     
-    methods_string = ""
-    
-    # Convert lists to numpy arrays and reshape
-    if stft and mfcc:
-        audio_stft_avg_features = np.array(audio_stft_avg_features)
-        audio_stft_std_features = np.array(audio_stft_std_features)
-        audio_mfcc_avg_features = np.array(audio_mfcc_avg_features)
-        audio_mfcc_std_features = np.array(audio_mfcc_std_features)
-        accel_features = np.array(accel_features)
-        audio_stft_avg_features_reshaped = audio_stft_avg_features.transpose(0, 2, 1)
-        audio_stft_std_features_reshaped = audio_stft_std_features.transpose(0, 2, 1)
-        audio_mfcc_avg_features_reshaped = audio_mfcc_avg_features.transpose(0, 2, 1)
-        audio_mfcc_std_features_reshaped = audio_mfcc_std_features.transpose(0, 2, 1)
-        combined_features = np.concatenate((accel_features, audio_stft_avg_features_reshaped, audio_stft_std_features_reshaped, audio_mfcc_avg_features_reshaped, audio_mfcc_std_features_reshaped), axis=2)
-        methods_string = "stft_mfcc"
-    elif stft:
-        audio_stft_avg_features = np.array(audio_stft_avg_features)
-        audio_stft_std_features = np.array(audio_stft_std_features)
-        accel_features = np.array(accel_features)
-        audio_stft_avg_features_reshaped = audio_stft_avg_features.transpose(0, 2, 1)
-        audio_stft_std_features_reshaped = audio_stft_std_features.transpose(0, 2, 1)
-        combined_features = np.concatenate((accel_features, audio_stft_avg_features_reshaped, audio_stft_std_features_reshaped), axis=2)
-        methods_string = "stft"
-    elif mfcc:
-        audio_mfcc_avg_features = np.array(audio_mfcc_avg_features)
-        audio_mfcc_std_features = np.array(audio_mfcc_std_features)
-        accel_features = np.array(accel_features)
-        audio_mfcc_avg_features_reshaped = audio_mfcc_avg_features.transpose(0, 2, 1)
-        audio_mfcc_std_features_reshaped = audio_mfcc_std_features.transpose(0, 2, 1)
-        combined_features = np.concatenate((accel_features, audio_mfcc_avg_features_reshaped, audio_mfcc_std_features_reshaped), axis=2)
-        methods_string = "mfcc"
-    else:
-        accel_features = np.array(accel_features)
-        combined_features = np.concatenate((accel_features), axis=2)
-        methods_string = "only_accel"
-    
-    # Normalize features
+    # Normalize features    
     scaler = StandardScaler()
+    # Get the shape of the combined features
     num_samples, time_steps, num_features = combined_features.shape
+    # Reshape the data to 2D array for scaling (samples * time_steps, features)
     combined_features_reshaped = combined_features.reshape(-1, num_features)
-    combined_features_normalized = scaler.fit_transform(combined_features_reshaped).reshape(num_samples, time_steps, num_features)
+    # Fit and transform the data using StandardScaler to zero mean and unit variance and reshape back to the original shape (samples, time_steps, features)
+    combined_features_normalized = scaler.fit_transform(combined_features_reshaped).reshape(num_samples, time_steps, num_features)    
     
     print("\nAverage Preprocessing Time per Sample:", (end_time_pre_proc - start_time_pre_proc) / len(labels))
     
@@ -350,7 +302,6 @@ def main():
     target_frames_shape = 50
     stft = True
     mfcc = True
-    
     # Data preprocessing
     features, labels, methods, pre_proc_time = preprocess_data(stft=stft, mfcc=mfcc, target_frames=target_frames_shape)
     

@@ -4,17 +4,18 @@ import os
 # Get the current directory and define the input name
 current_dir = os.getcwd()
 input_name = 'acel_liso_4'
-raw_data = os.path.join(current_dir, 'RAW')
+raw_data = os.path.join(current_dir, 'Dataset_Piso', 'LISO', 'RAW')
 
 # Define the input and output file paths
 input_file = os.path.join(raw_data, input_name + ".csv")
-output_directory = os.path.join(current_dir, 'SAMPLES_1s', 'ACCEL')
+output_directory = os.path.join(current_dir, 'Dataset_Augmented', 'smooth_floor', 'ACCEL')
 
 # Create the output directory if it doesn't exist
 os.makedirs(output_directory, exist_ok=True)
 
-# Define the time interval in milliseconds
+# Define the time interval in milliseconds and overlap factor
 time_interval = 1000  # 1 second
+overlap_factor = 0.5  # 50% overlap
 
 i = 0
 
@@ -37,52 +38,53 @@ with open(input_file, 'r') as file:
     current_sample = []
     current_sample_start_time = None
 
+    # Calculate the step size based on the overlap factor
+    step_size = int(50 * (1 - overlap_factor))
+
     # Iterate through each row in the .csv file
     for row in reader:
         timestamp = int(row[0])  # Assuming the timestamp is in the first column
 
-        # Check if the current row belongs to the current sample or a new sample
+        # If this is the first row in the current sample
         if current_sample_start_time is None:
             current_sample_start_time = timestamp
-        elif timestamp - current_sample_start_time >= time_interval:
+
+        # Add the current row to the current sample
+        current_sample.append(row)
+
+        # Check if the current sample has reached 50 rows
+        if len(current_sample) == 50:
             # Save the current sample to a new file
-            print("Sample lenght before adjust: ", len(current_sample))
-            if len(current_sample) > 50:
-                current_sample = current_sample[:50]
-            elif len(current_sample) < 50:
-                avg_row = average_of_last_three(current_sample)
-                if avg_row:
-                    while len(current_sample) < 50:
-                        current_sample.append(avg_row)
-            print("Sample lenght after adjust: ", len(current_sample))
             output_file = os.path.join(output_directory, f'{input_name}_sample_{i}.csv')
-            i += 1
             with open(output_file, 'w', newline='') as output:
                 writer = csv.writer(output)
                 writer.writerow(header)
                 writer.writerows(current_sample)
+            print(f"Sample {i} created with {len(current_sample)} rows.")
 
-            # Reset variables for the new sample
-            current_sample = []
+            # Increment the sample counter
+            i += 1
+
+            # Determine the overlap portion of the current sample to retain
+            current_sample = current_sample[-step_size:]
+
+            # Reset the start time for the next sample
             current_sample_start_time = timestamp
 
-        # Add the current row to the current sample
-        current_sample.append(row)        
+    '''# If there are any remaining rows after the last full sample
+    if len(current_sample) > 0 and len(current_sample) < 50:
+        # Fill the remaining rows to make it 50
+        avg_row = average_of_last_three(current_sample)
+        if avg_row:
+            while len(current_sample) < 50:
+                current_sample.append(avg_row)
 
-    # Save the last sample to a new file if it contains any rows
-    '''if current_sample:
-        if len(current_sample) > 50:
-            current_sample = current_sample[:50]
-        elif len(current_sample) < 50:
-            avg_row = average_of_last_three(current_sample)
-            if avg_row:
-                while len(current_sample) < 50:
-                    current_sample.append(avg_row)
-
+        # Save the last sample to a new file
         output_file = os.path.join(output_directory, f'{input_name}_sample_{i}.csv')
         with open(output_file, 'w', newline='') as output:
             writer = csv.writer(output)
             writer.writerow(header)
-            writer.writerows(current_sample)'''
+            writer.writerows(current_sample)
+        print(f"Sample {i} created with {len(current_sample)} rows.")'''
 
 print("Sample files have been created successfully.")

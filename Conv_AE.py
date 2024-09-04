@@ -24,9 +24,9 @@ from sklearn.metrics import (precision_score, recall_score, f1_score, roc_auc_sc
 from sklearn.model_selection import train_test_split
 from sklearn.utils import shuffle
 import tensorflow as tf
-from keras.callbacks import EarlyStopping
-from keras_tuner import HyperModel, HyperParameters, BayesianOptimization
-from UN_CNN_Models import RNN_DEEP, RNN_SIMPLE, CNN_SIMPLE, CNN_DEEP, Attention_AE, SEQ_VAE
+from keras.callbacks import EarlyStopping, TensorBoard
+from keras_tuner import HyperModel, HyperParameters, BayesianOptimization, Hyperband, Objective
+from UN_CNN_Models_TuningVersion import RNN_DEEP, RNN_SIMPLE, CNN_SIMPLE, CNN_DEEP, Attention_AE, SEQ_VAE
 from AE_Aux_Func import plot_metrics_vs_threshold, plot_precision_recall_curve
 
 
@@ -311,6 +311,7 @@ def remove_unused_trials(keras_tuner_dir, project_name, best_trial):
                 print(f"Keeping best trial {trial_id}")
         else:
             print(f"Skipping {subdir}")
+            
 
 def main():
     
@@ -366,11 +367,12 @@ def main():
     # input_shape = (50, 2143)
     
     # Model building and training
+    #X_train = np.expand_dims(X_train, -1).astype("float32")
 
     input_shape = X_train.shape[1:]
     # Epochs and batch size
     epochs = 100
-    batch_size = 128
+    batch_size = 32
 
     # Define directories
     current_dir = os.getcwd()
@@ -379,17 +381,19 @@ def main():
 
 
     # Define the BayesianOptimization tuner
-    tuner = BayesianOptimization(
+    tuner = Hyperband(
         hypermodel=SEQ_VAE(input_shape),
-        objective='val_loss',
-        max_trials=20,
-        executions_per_trial=1,
+        objective=Objective("loss", direction="min"),
+        #max_trials=10,
+        #executions_per_trial=2,
+        max_epochs=epochs,
+        factor=3,
         directory=tuner_dir,
         project_name=project_name
     )
 
     # Early stopping setup
-    early_stopping = EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True, verbose=1)
+    early_stopping = EarlyStopping(monitor='val_loss', mode='min', patience=10, restore_best_weights=True, verbose=1)
 
     # If the tuner directory exists, try to load the best trial, otherwise perform Bayesian optimization and save and load the best trial
     try:
