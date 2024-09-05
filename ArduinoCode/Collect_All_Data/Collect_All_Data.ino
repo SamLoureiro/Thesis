@@ -10,7 +10,9 @@
 #include <string.h>
 
 
-Bounce2::Button button = Bounce2::Button();
+Bounce2::Button Noisebutton = Bounce2::Button();
+Bounce2::Button Damagedbutton = Bounce2::Button();
+Bounce2::Button Healthybutton = Bounce2::Button();
 
 // GUItool: begin automatically generated code
 AudioInputI2S            i2s2;           //xy=105,63
@@ -29,10 +31,14 @@ Adafruit_MPU6050 mpu_l, mpu_r;
 File acelFile, errorFile, audio_data, wavFile;
 
 // Settings
-#define BTN_SAMPLE_ACCEL    34         // Button pin
+#define NoisePin            34         // Button pin
+#define DamagedPin          35         // Button pin
+#define HealthyPin          36         // Button pin
 #define BUILTIN_PIN         13         // Built In LED pin
 #define ERROR_PIN           33         // Built In LED pin
 #define TEMP_PIN            A12        // Temperature Sensor Analog Pin
+#define DUST_PIN            27
+#define GAS_PIN             41 
 
 // Constants
 #define CONVERT_G_TO_MS2    9.80665f                  // Used to convert G to m/s^2
@@ -46,8 +52,6 @@ const int chipSelect = BUILTIN_SDCARD;
 
 const char* error_txt = "error_data.csv";
 
-const char* wav = "record.wav";
-
 const int myInput = AUDIO_INPUT_MIC;
 
 const float referenceVoltage = 3.3;
@@ -58,10 +62,26 @@ int bufferCount = 0;
 
 int mode = 0;
 
+void recordSensorData(sensors_event_t* a, sensors_event_t* g, sensors_event_t* t, File& file, unsigned long start_timestamp, unsigned long timestamp, bool writetime);
+void stopSampling();
+void startRecording(const char* wavName);
+void continueRecording();
+void stopRecording();
+void writeWavHeader(File &file, int sampleRate, int bitDepth, int channels, int dataSize);
+void updateDataSizeInHeader(File &file);
+const char* getUniqueFilename(const char* baseName, const char* extension);
+void flushBuffer(File& file);
+
 void setup() {
   Serial.begin(115200);
-  button.attach(BTN_SAMPLE_ACCEL, INPUT_PULLUP); // Use external pull-up
-  button.interval(50);
+  Noisebutton.attach(NoisePin, INPUT_PULLUP);
+  Noisebutton.interval(50);
+
+  Damagedbutton.attach(DamagedPin, INPUT_PULLUP);
+  Damagedbutton.interval(50);
+
+  Healthybutton.attach(HealthyPin, INPUT_PULLUP); 
+  Healthybutton.interval(50);
 
   pinMode(BUILTIN_PIN, OUTPUT);
   digitalWrite(BUILTIN_PIN, LOW);
@@ -86,15 +106,14 @@ void setup() {
     Serial.println(String(error_txt) + " open with success");
     errorFile.print("Time Stamp,");
     errorFile.println("Error Log");
-    errorFile.print(millis());
-    errorFile.println("," + String(error_txt) + " open with success");
+    writeLog(errorFile, millis(), "Log File opened with success");
   } else {
     digitalWrite(ERROR_PIN, HIGH);
     return;
   }
   digitalWrite(ERROR_PIN, LOW);
-  errorFile.print("Time Stamp");
-  errorFile.println(",Error Log");
+  //errorFile.print("Time Stamp");
+  //errorFile.println(",Error Log");
   // Initialize MPU6050 sensors
   Wire.setSCL(19);  // SCL on first i2c bus on T4.1
   Wire.setSDA(18);  // SDA on first i2c bus on T4.1
@@ -103,14 +122,12 @@ void setup() {
 
   while(!mpu_l.begin(0x68, &Wire, 0) || !mpu_r.begin(0x68, &Wire1, 0)) {
     digitalWrite(ERROR_PIN, HIGH);
-    errorFile.print(millis());
-    errorFile.println(",Failed to find MPU6050 chips");  
+    writeLog(errorFile, millis(), "Failed to find MPU6050 chips");
     Serial.println("Failed to find MPU6050 chips");    
     delay(1000);    
   }
   digitalWrite(ERROR_PIN, LOW);
-  errorFile.print(millis());
-  errorFile.println(",MPU6050 chips connected successfully"); 
+  writeLog(errorFile, millis(), "MPU6050 chips connected successfully");
   Serial.println("MPU6050 chips connected successfully");
   // Setup motion detection for both sensors
   setupMotionDetection(&mpu_l);
@@ -119,16 +136,25 @@ void setup() {
 }
 
 void loop() {
-  button.update();
+  Noisebutton.update();
+  Damagedbutton.update();
+  Healthybutton.update();
 
-  if (button.fell()) { // Button pressed down
+  if (Noisebutton.fell()) { // Button pressed down
     if (!samplingState) { // Start sampling
-      startSampling();
-    } /*else { // Stop sampling
-      stopSampling();
-    }*/
+      startSampling("noise_audio", "noise_accel");
+    }
   }
-
+  else if (Damagedbutton.fell()) { // Button pressed down
+    if (!samplingState) { // Start sampling
+      startSampling("damaged_audio", "damaged_accel");
+    }
+  }
+  else if (Healthybutton.fell()) { // Button pressed down
+    if (!samplingState) { // Start sampling
+      startSampling("healthy_audio", "healthy_accel");
+    }
+  }
   delay(10);
 }
 
@@ -141,28 +167,26 @@ void setupMotionDetection(Adafruit_MPU6050* mpu) {
   mpu->setMotionInterrupt(true);
 }
 
-void startSampling() {
+void startSampling(const char* wavName, const char* csvName) {
   samplingState = true;
   digitalWrite(BUILTIN_PIN, HIGH); // Turn on LED to indicate sampling
 
-  const char* acel_csv = getUniqueFilename("acel_csv", "csv");
+  const char* acel_csv = getUniqueFilename(csvName, "csv");
   acelFile = SD.open(acel_csv, FILE_WRITE);
   if (acelFile) {
     Serial.println(String(acel_csv) + " open with success");
-    errorFile.print(millis());
-    errorFile.println("," + String(acel_csv) + " open with success");
-    acelFile.println("timestamp,accX_l,accY_l,accZ_l,gyrX_l,gyrY_l,gyrZ_l,temp_l,accX_r,accY_r,accZ_r,gyrX_r,gyrY_r,gyrZ_r,temp_r,temp_center");
+    writeLog(errorFile, millis(), ".csv opened with sucess"); 
+    acelFile.println("timestamp,accX_l,accY_l,accZ_l,gyrX_l,gyrY_l,gyrZ_l,temp_l,accX_r,accY_r,accZ_r,gyrX_r,gyrY_r,gyrZ_r,temp_r,temp_center,gas,dust");
   } else {
     digitalWrite(ERROR_PIN, HIGH);
     Serial.println("Error opening file " + String(acel_csv));
-    errorFile.print(millis());
-    errorFile.println(",Error opening file " + String(acel_csv));
+    writeLog(errorFile, millis(), "Error opening .csv file");   
     stopRecording();
     stopSampling(); // Stop sampling if file open failed    
     return;
   }
 
-  startRecording();
+  startRecording(wavName);
 
   unsigned long start_timestamp = millis();
   unsigned long last_timestamp = start_timestamp;
@@ -175,44 +199,43 @@ void startSampling() {
 
       digitalWrite(BUILTIN_PIN, LOW);
       Serial.println("Memoria a 80\%");
-      errorFile.print(millis());
-      errorFile.println(",Memoria a 80\%");
+      writeLog(errorFile, millis(), "Memoria a 80\%");    
       digitalWrite(ERROR_PIN, HIGH);
       stopRecording();
       stopSampling();
       
       return;
     }
-    if(current_timestamp - last_timestamp >= SAMPLING_PERIOD_MS) {
-      button.update();
+    if(current_timestamp - last_timestamp >= SAMPLING_PERIOD_MS) {      
+      Noisebutton.update();
+      Damagedbutton.update();
+      Healthybutton.update();
+
       last_timestamp = current_timestamp;
 
       sensors_event_t a_l, g_l, temp_l;
       mpu_l.getEvent(&a_l, &g_l, &temp_l);
       if(mpu_l.getClock() != 1) {
         Serial.println("Accel Left is Disconnected");
-        errorFile.print(millis());
-        errorFile.println(",Accel Left is Disconnected");
+        writeLog(errorFile, millis(), "Accel Left is Disconnected");    
         unsigned long start_error_accel = millis();
         unsigned long current_error_accel = millis();
         while(!mpu_l.begin(0x68, &Wire, 0)) {
+          stopRecording();
+          stopSampling();
           current_error_accel = millis();
           Serial.println("Failed to find MPU6050_l chip");
-          errorFile.print(millis());
-          errorFile.println(",Failed to find MPU6050_l chip");
+          writeLog(errorFile, millis(), "Failed to find MPU6050_l chip");
           digitalWrite(ERROR_PIN, HIGH);
           if(current_error_accel - start_error_accel > 10000) {
-            digitalWrite(ERROR_PIN, HIGH);
-            stopRecording();
-            stopSampling();            
+            writeLog(errorFile, millis(), "Failed to reconnect MPU6050_l");            
             return;
           }
           delay(100);
         }        
         Serial.println("Accel Left Reconnected");     
-        errorFile.print(millis());
-        errorFile.println(",Accel Left Reconnected"); 
-        digitalWrite(ERROR_PIN, LOW);
+        writeLog(errorFile, millis(), "Accel Left Reconnected");
+        return;
       }      
       recordSensorData(&a_l, &g_l, &temp_l, acelFile, start_timestamp, current_timestamp, true);
 
@@ -220,37 +243,33 @@ void startSampling() {
       mpu_r.getEvent(&a_r, &g_r, &temp_r);
       if(mpu_r.getClock() != 1) {
         Serial.println("Accel Right is Disconnected");
-        errorFile.print(millis());
-        errorFile.println(",Accel Right is Disconnected");
+        writeLog(errorFile, millis(), "Accel Right is Disconnected");
+        stopRecording();
+        stopSampling();       
         unsigned long start_error_accel = millis();
         unsigned long current_error_accel = millis();
         while(!mpu_r.begin(0x68, &Wire1, 0)) {
           current_error_accel = millis();
           Serial.println("Failed to find MPU6050_r chip");
-          errorFile.print(millis());
-          errorFile.println(",Failed to find MPU6050_r chip");
+          writeLog(errorFile, millis(), "Failed to find MPU6050_r chip");
           digitalWrite(ERROR_PIN, HIGH);
           if(current_error_accel - start_error_accel > 10000) {
-            digitalWrite(ERROR_PIN, HIGH);
-            stopRecording();
-            stopSampling();            
+            writeLog(errorFile, millis(), "Failed to reconnect MPU6050_r");  
             return;
           }
           delay(100);
-        }   
-        digitalWrite(ERROR_PIN, LOW);     
-        Serial.println("Accel Right Reconnected"); 
-        errorFile.print(millis()); 
-        errorFile.println(",Accel Right Reconnected");      
+        }    
+        Serial.println("Accel Right Reconnected");
+        writeLog(errorFile, millis(), "Accel Right Reconnected");
+        return;    
       }
       recordSensorData(&a_r, &g_r, &temp_r, acelFile, start_timestamp, current_timestamp, false);
 
-      if (button.released()) { // Button pressed down again
+      if (Noisebutton.released() || Damagedbutton.released() || Healthybutton.released()) { // Button pressed down again
         stopRecording(); 
-        stopSampling(); // Stop sampling and break out of loop            
+        stopSampling(); // Stop sampling and break out of loop
+        writeLog(errorFile, millis(), "Stoped Sampling");                   
         Serial.println("Stoped Sampling");
-        errorFile.print(millis());
-        errorFile.println(",Stoped Sampling");
         break;
       }
     }
@@ -313,9 +332,9 @@ void stopSampling() {
   digitalWrite(BUILTIN_PIN, LOW); // Turn off LED to indicate sampling stopped
 }
 
-void startRecording() {  
+void startRecording(const char* wavName) {  
 
-  const char* wav_filename = getUniqueFilename("RECORD", "WAV");
+  const char* wav_filename = getUniqueFilename(wavName, "WAV");
   audio_data = SD.open(wav_filename, FILE_WRITE);
 
   if (audio_data) {
@@ -327,8 +346,7 @@ void startRecording() {
     writeWavHeader(audio_data, sampleRate, bitDepth, channels, dataSize);
     queue1.begin();
     Serial.println("startRecording");
-    errorFile.print(millis());
-    errorFile.println(",startRecording");
+    writeLog(errorFile, millis(), "Start recording");
   }
 }
 
@@ -369,45 +387,12 @@ void stopRecording() {
   }
 
   Serial.println("stopRecording");
-  errorFile.print(millis());
-  errorFile.println(",stopRecording");
+  writeLog(errorFile, millis(), "Stop recording");
 
   updateDataSizeInHeader(audio_data);
 
 }
 
-
-bool copyFileWithWavHeader(int sampleRate, int bitDepth, int channels) {
-
-  // Open the destination file for writing
-  wavFile = SD.open(wav, FILE_WRITE);
-  if (!wavFile) {
-    Serial.println("Failed to open destination file.");
-    digitalWrite(ERROR_PIN, HIGH);
-    stopSampling();  
-    return false;
-  }
-
-  // Calculate the data size and write the WAV header
-  audio_data.seek(0);
-  int dataSize = audio_data.size();
-  writeWavHeader(wavFile, sampleRate, bitDepth, channels, dataSize);
-
-  // Copy data from source to destination
-  const size_t bufferSize = 512; // You can adjust the buffer size
-  uint8_t buffer[bufferSize];
-  size_t bytesRead;
-
-  while ((bytesRead = audio_data.read(buffer, bufferSize)) > 0) {
-    wavFile.write(buffer, bytesRead);
-  }
-
-  // Close both files
-  audio_data.close();
-  wavFile.close();
-
-  return true;
-}
 
 void writeWavHeader(File &file, int sampleRate, int bitDepth, int channels, int dataSize) {
   int byteRate = sampleRate * channels * (bitDepth / 8);
@@ -481,3 +466,41 @@ void flushBuffer(File& file) {
     bufferCount = 0;
   }
 }
+
+void writeLog(File& file, const long time, const char* error) {
+  file.print(time);
+  file.println("," + String(error));
+}
+
+
+/*bool copyFileWithWavHeader(int sampleRate, int bitDepth, int channels) {
+
+  // Open the destination file for writing
+  wavFile = SD.open(wav, FILE_WRITE);
+  if (!wavFile) {
+    Serial.println("Failed to open destination file.");
+    digitalWrite(ERROR_PIN, HIGH);
+    stopSampling();  
+    return false;
+  }
+
+  // Calculate the data size and write the WAV header
+  audio_data.seek(0);
+  int dataSize = audio_data.size();
+  writeWavHeader(wavFile, sampleRate, bitDepth, channels, dataSize);
+
+  // Copy data from source to destination
+  const size_t bufferSize = 512; // You can adjust the buffer size
+  uint8_t buffer[bufferSize];
+  size_t bytesRead;
+
+  while ((bytesRead = audio_data.read(buffer, bufferSize)) > 0) {
+    wavFile.write(buffer, bytesRead);
+  }
+
+  // Close both files
+  audio_data.close();
+  wavFile.close();
+
+  return true;
+}*/
