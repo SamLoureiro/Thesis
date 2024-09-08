@@ -414,7 +414,7 @@ def build_decoder(input_shape, latent_dim):
 
 class VAE(Model):
     def __init__(self, encoder, decoder, **kwargs):
-        super().__init__(**kwargs)
+        super(VAE, self).__init__(**kwargs)
         self.encoder = encoder
         self.decoder = decoder
         self.total_loss_tracker = metrics.Mean(name="total_loss")
@@ -495,6 +495,25 @@ class VAE(Model):
             "reconstruction_loss": self.val_reconstruction_loss_tracker.result(),
             "kl_loss": self.val_kl_loss_tracker.result(),
         }
+
+    # Adding the get_config method for serialization
+    def get_config(self):
+        config = super(VAE, self).get_config()
+        config.update({
+            'encoder': self.encoder.get_config(),
+            'decoder': self.decoder.get_config(),
+        })
+        return config
+
+    # Adding the from_config method for deserialization
+    @classmethod
+    def from_config(cls, config):
+        encoder_config = config.pop('encoder')
+        decoder_config = config.pop('decoder')
+        encoder = Model.from_config(encoder_config)
+        decoder = Model.from_config(decoder_config)
+        return cls(encoder, decoder, **config)
+
 
 def build_vae(input_shape, latent_dim):
     encoder = build_encoder(input_shape, latent_dim)
