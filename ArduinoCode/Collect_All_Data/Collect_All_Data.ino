@@ -44,7 +44,25 @@ File acelFile, errorFile, audio_data, wavFile;
 #define CONVERT_G_TO_MS2    9.80665f                  // Used to convert G to m/s^2
 #define SAMPLING_FREQ_HZ    50                        // Sampling frequency (Hz)
 #define SAMPLING_PERIOD_MS  (1000 / SAMPLING_FREQ_HZ) // Sampling period (ms)
-#define BUFFER_SIZE 100 // Number of lines to accumulate before writing to SD
+#define BUFFER_SIZE 100                               // Number of lines to accumulate before writing to SD
+
+/*
+
+Ideally set the rest positions to 0. However, in the with the initial data recorded with the first robot, no calibration was done. 
+To solve this, we will calibrate the MPUs to the rest position that they have in the other robot
+
+*/
+
+// Desired rest position for left and right accelerometer and gyroscope
+float accelTargetLeft[3] = {29.15, -8.92, -111.38};
+float gyroTargetLeft[3] = {0.00, 0.01, 0.01};
+
+float accelTargetRight[3] = {25.89, -7.56, -113.39};  // Example different target for right sensor
+float gyroTargetRight[3] = {-0.05, -0.06, 0};
+
+// Stores calibration offsets for ax, ay, az, gx, gy, gz (left and right)
+float accelOffsetsLeft[3], gyroOffsetsLeft[3];
+float accelOffsetsRight[3], gyroOffsetsRight[3];
 
 static bool samplingState = false;         // Keep track of sampling state
 
@@ -71,6 +89,8 @@ void writeWavHeader(File &file, int sampleRate, int bitDepth, int channels, int 
 void updateDataSizeInHeader(File &file);
 const char* getUniqueFilename(const char* baseName, const char* extension);
 void flushBuffer(File& file);
+void calibrateMPU6050(Adafruit_MPU6050 &mpu, float accelOffsets[3], float gyroOffsets[3], float accelTarget[3], float gyroTarget[3]); 
+
 
 void setup() {
   Serial.begin(115200);
@@ -120,10 +140,16 @@ void setup() {
   Wire1.setSCL(16); // SCL1 on second i2c bus on T4.1
   Wire1.setSDA(17); // SDA1 on second i2c bus on T4.1
 
-  while(!mpu_l.begin(0x68, &Wire, 0) || !mpu_r.begin(0x68, &Wire1, 0)) {
+  while(!mpu_l.begin(0x68, &Wire, 0)) {
     digitalWrite(ERROR_PIN, HIGH);
-    writeLog(errorFile, millis(), "Failed to find MPU6050 chips");
-    Serial.println("Failed to find MPU6050 chips");    
+    writeLog(errorFile, millis(), "Failed to find left MPU6050 chip");
+    Serial.println("Failed to find left MPU6050 chip");    
+    delay(1000);    
+  }
+  while(!mpu_r.begin(0x68, &Wire1, 0)) {
+    digitalWrite(ERROR_PIN, HIGH);
+    writeLog(errorFile, millis(), "Failed to right find MPU6050 chip");
+    Serial.println("Failed to right find MPU6050 chip");    
     delay(1000);    
   }
   digitalWrite(ERROR_PIN, LOW);
@@ -133,6 +159,11 @@ void setup() {
   setupMotionDetection(&mpu_l);
   setupMotionDetection(&mpu_r);
 
+  // Calibrate both sensors (left and right)
+  calibrateMPU6050(mpu_l, accelOffsetsLeft, gyroOffsetsLeft, accelTargetLeft, gyroTargetLeft);
+  calibrateMPU6050(mpu_r, accelOffsetsRight, gyroOffsetsRight, accelTargetRight, gyroTargetRight);
+  writeLog(errorFile, millis(), "MPU6050s calibrated successfully");
+
 }
 
 void loop() {
@@ -141,16 +172,19 @@ void loop() {
   Healthybutton.update();
 
   if (Noisebutton.fell()) { // Button pressed down
+    Serial.println("Button Noise");
     if (!samplingState) { // Start sampling
       startSampling("noise_audio", "noise_accel");
     }
   }
   else if (Damagedbutton.fell()) { // Button pressed down
+    Serial.println("Damaged Bearing Button Pressed");
     if (!samplingState) { // Start sampling
       startSampling("damaged_audio", "damaged_accel");
     }
   }
   else if (Healthybutton.fell()) { // Button pressed down
+    Serial.println("Healthy Bearing Button Pressed");
     if (!samplingState) { // Start sampling
       startSampling("healthy_audio", "healthy_accel");
     }
@@ -280,12 +314,24 @@ void startSampling(const char* wavName, const char* csvName) {
 
 void recordSensorData(sensors_event_t* a, sensors_event_t* g, sensors_event_t* t, File& file, unsigned long start_timestamp, unsigned long timestamp, bool writetime) {
 
-  float acc_x = a->acceleration.x * CONVERT_G_TO_MS2;
-  float acc_y = a->acceleration.y * CONVERT_G_TO_MS2;
-  float acc_z = a->acceleration.z * CONVERT_G_TO_MS2;
-  float gyr_x = g->gyro.x;
-  float gyr_y = g->gyro.y;
-  float gyr_z = g->gyro.z;
+  float acc_x = 0, acc_y = 0, acc_z = 0, gyr_x = 0, gyr_y = 0, gyr_z = 0;
+  if(!writetime) {
+    acc_x = a->acceleration.x * CONVERT_G_TO_MS2 - accelOffsetsLeft[0];
+    acc_y = a->acceleration.y * CONVERT_G_TO_MS2 - accelOffsetsLeft[1];
+    acc_z = a->acceleration.z * CONVERT_G_TO_MS2 - accelOffsetsLeft[2];
+    gyr_x = g->gyro.x - gyroOffsetsLeft[0];
+    gyr_y = g->gyro.y - gyroOffsetsLeft[1];
+    gyr_z = g->gyro.z - gyroOffsetsLeft[2];    
+  }
+  else{
+    acc_x = a->acceleration.x * CONVERT_G_TO_MS2 - accelOffsetsRight[0];
+    acc_y = a->acceleration.y * CONVERT_G_TO_MS2 - accelOffsetsRight[1];
+    acc_z = a->acceleration.z * CONVERT_G_TO_MS2 - accelOffsetsRight[2];
+    gyr_x = g->gyro.x - gyroOffsetsRight[0];
+    gyr_y = g->gyro.y - gyroOffsetsRight[1];
+    gyr_z = g->gyro.z - gyroOffsetsRight[2]; 
+  }
+
   float temp = t->temperature;
 
   String csv_line = "";
@@ -472,6 +518,61 @@ void writeLog(File& file, const long time, const char* error) {
   file.println("," + String(error));
 }
 
+void calibrateMPU6050(Adafruit_MPU6050 &mpu, float accelOffsets[3], float gyroOffsets[3], float accelTarget[3], float gyroTarget[3]) {
+  int numSamples = 1000;
+  long axSum = 0, aySum = 0, azSum = 0, gxSum = 0, gySum = 0, gzSum = 0;
+  bool led_alert = 0;
+  Serial.println("Calibrating... Please hold the device still in the desired position.");
+
+  for (int i = 0; i < numSamples; i++) {
+
+    sensors_event_t a, g, temp;
+    mpu.getEvent(&a, &g, &temp);
+    float ax = a.acceleration.x * CONVERT_G_TO_MS2;
+    float ay = a.acceleration.y * CONVERT_G_TO_MS2;
+    float az = a.acceleration.z * CONVERT_G_TO_MS2;
+    float gx = g.gyro.x;
+    float gy = g.gyro.y;
+    float gz = g.gyro.z;
+    
+    uint16_t led_alert_aux = i % 50;
+    
+    if(!led_alert_aux) {
+      led_alert = !led_alert;
+      digitalWrite(ERROR_PIN, led_alert);
+    }
+
+    axSum += ax;
+    aySum += ay;
+    azSum += az;
+    gxSum += gx;
+    gySum += gy;
+    gzSum += gz;
+
+    delay(5);  // Small delay between samples
+  }
+
+  // Average readings
+  float axAvg = axSum / numSamples;
+  float ayAvg = aySum / numSamples;
+  float azAvg = azSum / numSamples;
+  float gxAvg = gxSum / numSamples;
+  float gyAvg = gySum / numSamples;
+  float gzAvg = gzSum / numSamples;
+
+  // Calculate offsets based on the target rest position
+  accelOffsets[0] = axAvg - accelTarget[0];
+  accelOffsets[1] = ayAvg - accelTarget[1];
+  accelOffsets[2] = azAvg - accelTarget[2];
+
+  gyroOffsets[0] = gxAvg - gyroTarget[0];
+  gyroOffsets[1] = gyAvg - gyroTarget[1];
+  gyroOffsets[2] = gzAvg - gyroTarget[2];
+
+  digitalWrite(ERROR_PIN, 0);
+  Serial.println("Calibration complete!");
+}
+
 
 /*bool copyFileWithWavHeader(int sampleRate, int bitDepth, int channels) {
 
@@ -504,3 +605,4 @@ void writeLog(File& file, const long time, const char* error) {
 
   return true;
 }*/
+
