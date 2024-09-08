@@ -25,13 +25,11 @@ from sklearn.metrics import (precision_score, recall_score, f1_score, roc_auc_sc
 from sklearn.model_selection import train_test_split
 from sklearn.utils import shuffle
 import tensorflow as tf
-import keras
-from keras import ops
-from keras import layers
 from keras.callbacks import EarlyStopping
+from keras.models import load_model
 from keras_tuner import HyperModel, HyperParameters, BayesianOptimization, Hyperband
 from UN_CNN_Models import RNN_DEEP, RNN_SIMPLE, CNN_SIMPLE, CNN_DEEP, Attention_AE, vae_model_builder
-from AE_Aux_Func import plot_metrics_vs_threshold, plot_precision_recall_curve, find_optimal_threshold_f1
+from AE_Aux_Func import plot_metrics_vs_threshold, plot_precision_recall_curve, find_optimal_threshold_f1, save_metrics_to_csv
 
 
 
@@ -46,8 +44,8 @@ file_paths = {
     'damaged_bearing_acel_s': os.path.join(current_dir, 'Dataset_Bearings', 'AMR_STOPPED', 'DAMAGED', 'ACEL'),
     'damaged_bearing_audio_m': os.path.join(current_dir, 'Dataset_Bearings', 'AMR_MOVEMENT', 'DAMAGED', 'AUDIO'),
     'damaged_bearing_acel_m': os.path.join(current_dir, 'Dataset_Bearings', 'AMR_MOVEMENT', 'DAMAGED', 'ACEL'),
-    'smooth_floor_audio': os.path.join(current_dir, 'Dataset_Piso', 'LISO', 'SAMPLES_1s', 'AUDIO'),
-    'smooth_floor_acel': os.path.join(current_dir, 'Dataset_Piso', 'LISO', 'SAMPLES_1s', 'ACCEL'),
+    'smooth_floor_audio': os.path.join(current_dir, 'Dataset_Piso', 'LISO', 'SAMPLES_1s', 'smooth_floor_augmented','AUDIO'),
+    'smooth_floor_acel': os.path.join(current_dir, 'Dataset_Piso', 'LISO', 'SAMPLES_1s', 'smooth_floor_augmented','ACCEL'),
     'tiled_floor_audio': os.path.join(current_dir, 'Dataset_Piso', 'TIJOLEIRA', 'SAMPLES_1s', 'AUDIO'),
     'tiled_floor_acel': os.path.join(current_dir, 'Dataset_Piso', 'TIJOLEIRA', 'SAMPLES_1s', 'ACCEL'),
     'noise_profile_file': os.path.join(current_dir, 'Dataset_Piso', 'Noise.WAV')
@@ -300,11 +298,23 @@ def main():
     '''
     
     target_frames_shape = 50
+    latent_dim = 16
     stft = True
     mfcc = True
+    
     # Data preprocessing
     features, labels, methods, pre_proc_time = preprocess_data(stft=stft, mfcc=mfcc, target_frames=target_frames_shape)
     
+    # Change the model name to the desired model
+    model = 'VAE' 
+    
+    metrics_file_name = f"{model}_lm_{latent_dim}_{methods}_{target_frames_shape}_results.csv"
+    output_dir_metrics = os.path.join(current_dir, 'AE_Results')
+       
+    model_name = f"{model}_lm_{latent_dim}_{methods}_{target_frames_shape}.keras"
+    model_save_path = os.path.join(current_dir, 'AE_Models', model_name)
+    
+   
     # Noise samples (considered as regular data)
     noise_samples = features[np.array(labels) == 0]    
     noise_labels = np.array([0] * noise_samples.shape[0])  # All labels in training set are 0
@@ -413,11 +423,18 @@ def main():
     hyperparameters = best_trial.hyperparameters
     print(f"Best trial hyperparameters: {hyperparameters.values}")'''
     
-    # Build the model
-    autoencoder = vae_model_builder(input_shape=input_shape, latent_dim=16)
+    if(os.path.exists(model_save_path)): 
+        autoencoder = load_model(model_save_path)
+        print("Model loaded successfully!")
+    else:
+        autoencoder = vae_model_builder(input_shape=input_shape, latent_dim=latent_dim)
+        autoencoder.fit(X_train_reshaphed, X_train_reshaphed, epochs=epochs, batch_size=batch_size, callbacks=[early_stopping], validation_split=0.1, verbose=1)                
+        file_name = model_save_path + model_name
+        # Save the model
+        autoencoder.save(model_save_path)
+        
+        print("Model saved successfully!")
     
-    # Train the model
-    autoencoder.fit(X_train_reshaphed, X_train_reshaphed, epochs=epochs, batch_size=batch_size, callbacks=[early_stopping], validation_split=0.1, verbose=1)    
    
     # Reconstruction and threshold finding
     start_time = time.time()
@@ -492,26 +509,41 @@ def main():
 
     print(classification_report(combined_test_labels, predicted_labels, target_names=["Noise", "Anomaly"]))
     
+    rec_error_noise_avg = np.mean(val_errors)
+    rec_error_bearing_avg = np.mean(bearing_val_errors)
+    rec_error_noise_std = np.std(val_errors)
+    rec_error_bearing_std = np.std(bearing_val_errors)
+    
     print("Reconstruction Errors:")
     print("Average Reconstruction Error for Validation Data (only noise):")
-    print(f'Mean Reconstruction Error: {np.mean(val_errors)}')
-    print(f'Standard Deviation of Reconstruction Error: {np.std(val_errors)}')
+    print(f'Mean Reconstruction Error: {rec_error_noise_avg}')
+    print(f'Standard Deviation of Reconstruction Error: {rec_error_noise_std}')
     print("Average Reconstruction Error for Validation Data (only bearings):")
-    print(f'Mean Reconstruction Error: {np.mean(bearing_val_predictions)}')
-    print(f'Standard Deviation of Reconstruction Error: {np.std(bearing_val_errors)}')
+    print(f'Mean Reconstruction Error: {rec_error_bearing_avg}')
+    print(f'Standard Deviation of Reconstruction Error: {rec_error_bearing_std}')
     print("\n")
+    
+    acc = accuracy_score(combined_test_labels, predicted_labels)
+    prec = precision_score(combined_test_labels, predicted_labels)
+    rec = recall_score(combined_test_labels, predicted_labels)
+    f1 = f1_score(combined_test_labels, predicted_labels)
+    auc = roc_auc_score(combined_test_labels, predicted_labels)
+    inf_time = inference_time / len(X_val) * 1000
+    proc_time = pre_proc_time / (len(y_train) + len(y_val)) * 1000
     
     # Global Evaluation
     print("Evaluation:")
     print(f"Optimal Threshold: {optimal_threshold:.3f}")  
-    print(f"Accuracy: {accuracy_score(combined_test_labels, predicted_labels):.3f}")
-    print(f"Precision: {precision_score(combined_test_labels, predicted_labels):.3f}")
-    print(f"Recall: {recall_score(combined_test_labels, predicted_labels):.3f}")
-    print(f"F1 Score: {f1_score(combined_test_labels, predicted_labels):.3f}")
-    print(f"AUC: {roc_auc_score(combined_test_labels, predicted_labels):.3f}")
-    print(f"Average inference time per sample: {(inference_time / len(X_val)) * 1000:.3f} ms")
-    print(f"Average processing time per sample: {(pre_proc_time / (len(y_train) + len(y_val)) * 1000):.3f} ms")
+    print(f"Accuracy: {acc:.3f}")
+    print(f"Precision: {prec:.3f}")
+    print(f"Recall: {rec:.3f}")
+    print(f"F1 Score: {f1:.3f}")
+    print(f"AUC: {auc:.3f}")
+    print(f"Average Inference Time per Sample: {inf_time:.3f} ms")
+    print(f"Average Preprocessing Time per Sample: {proc_time:.3f} ms")   
+    
 
+    save_metrics_to_csv(output_dir_metrics, metrics_file_name, prec, rec, f1, acc, auc, optimal_threshold, rec_error_noise_avg, rec_error_bearing_avg, rec_error_noise_std, rec_error_bearing_std, inf_time, proc_time)
 
     # Count the number of noise samples and bearings samples in the test set
     unique, counts = np.unique(combined_test_labels, return_counts=True)
