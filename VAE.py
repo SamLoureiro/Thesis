@@ -28,7 +28,7 @@ import tensorflow as tf
 from keras.callbacks import EarlyStopping
 from keras.models import load_model
 from keras_tuner import HyperModel, HyperParameters, BayesianOptimization, Hyperband
-from UN_CNN_Models import RNN_DEEP, RNN_SIMPLE, CNN_SIMPLE, CNN_DEEP, Attention_AE, vae_model_builder
+from UN_CNN_Models import RNN_DEEP, RNN_SIMPLE, CNN_SIMPLE, CNN_DEEP, Attention_AE, vae_model_builder, VAE
 from AE_Aux_Func import plot_metrics_vs_threshold, plot_precision_recall_curve, find_optimal_threshold_f1, save_metrics_to_csv
 
 
@@ -424,12 +424,14 @@ def main():
     print(f"Best trial hyperparameters: {hyperparameters.values}")'''
     
     if(os.path.exists(model_save_path)): 
-        autoencoder = load_model(model_save_path)
+        autoencoder = load_model(model_save_path, custom_objects={'VAE': VAE})
         print("Model loaded successfully!")
     else:
         autoencoder = vae_model_builder(input_shape=input_shape, latent_dim=latent_dim)
+        input_shape_with_batch = (batch_size,) + input_shape
+        autoencoder.build(input_shape_with_batch)
+        #autoencoder.summary()
         autoencoder.fit(X_train_reshaphed, X_train_reshaphed, epochs=epochs, batch_size=batch_size, callbacks=[early_stopping], validation_split=0.1, verbose=1)                
-        file_name = model_save_path + model_name
         # Save the model
         autoencoder.save(model_save_path)
         
