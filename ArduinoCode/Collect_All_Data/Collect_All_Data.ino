@@ -89,6 +89,7 @@ void writeWavHeader(File &file, int sampleRate, int bitDepth, int channels, int 
 void updateDataSizeInHeader(File &file);
 const char* getUniqueFilename(const char* baseName, const char* extension);
 void flushBuffer(File& file);
+void calibrateMPU6050(Adafruit_MPU6050 &mpu, float accelOffsets[3], float gyroOffsets[3], float accelTarget[3], float gyroTarget[3]); 
 
 
 void setup() {
@@ -520,7 +521,7 @@ void writeLog(File& file, const long time, const char* error) {
 void calibrateMPU6050(Adafruit_MPU6050 &mpu, float accelOffsets[3], float gyroOffsets[3], float accelTarget[3], float gyroTarget[3]) {
   int numSamples = 1000;
   long axSum = 0, aySum = 0, azSum = 0, gxSum = 0, gySum = 0, gzSum = 0;
-  
+  bool led_alert = 0;
   Serial.println("Calibrating... Please hold the device still in the desired position.");
 
   for (int i = 0; i < numSamples; i++) {
@@ -533,6 +534,13 @@ void calibrateMPU6050(Adafruit_MPU6050 &mpu, float accelOffsets[3], float gyroOf
     float gx = g.gyro.x;
     float gy = g.gyro.y;
     float gz = g.gyro.z;
+    
+    uint16_t led_alert_aux = i % 50;
+    
+    if(!led_alert_aux) {
+      led_alert = !led_alert;
+      digitalWrite(ERROR_PIN, led_alert);
+    }
 
     axSum += ax;
     aySum += ay;
@@ -561,6 +569,7 @@ void calibrateMPU6050(Adafruit_MPU6050 &mpu, float accelOffsets[3], float gyroOf
   gyroOffsets[1] = gyAvg - gyroTarget[1];
   gyroOffsets[2] = gzAvg - gyroTarget[2];
 
+  digitalWrite(ERROR_PIN, 0);
   Serial.println("Calibration complete!");
 }
 
