@@ -48,7 +48,9 @@ file_paths = {
     'smooth_floor_acel': os.path.join(current_dir, 'Dataset_Piso', 'LISO', 'SAMPLES_1s', 'smooth_floor_augmented','ACCEL'),
     'tiled_floor_audio': os.path.join(current_dir, 'Dataset_Piso', 'TIJOLEIRA', 'SAMPLES_1s', 'AUDIO'),
     'tiled_floor_acel': os.path.join(current_dir, 'Dataset_Piso', 'TIJOLEIRA', 'SAMPLES_1s', 'ACCEL'),
-    'noise_profile_file': os.path.join(current_dir, 'Dataset_Piso', 'Noise.WAV')
+    'noise_profile_file': os.path.join(current_dir, 'Dataset_Piso', 'Noise.WAV'),
+    'smooth_floor_audio_new_amr': os.path.join(current_dir, 'Dataset_Piso', 'LISO', 'SAMPLES_1s', 'AUDIO'),
+    'smooth_floor_accel_new_amr': os.path.join(current_dir, 'Dataset_Piso', 'LISO', 'SAMPLES_1s', 'ACCEL')
 }
 
 def sort_key(file_path):
@@ -183,9 +185,12 @@ def preprocess_data(stft=True, mfcc=True, target_frames=50):
     """Preprocess data for training and testing."""
     # Load data
     noise_audio =   (load_files(file_paths['smooth_floor_audio'], '.WAV') +
-                     load_files(file_paths['tiled_floor_audio'], '.WAV'))
+                     load_files(file_paths['tiled_floor_audio'], '.WAV') + 
+                     load_files(file_paths['smooth_floor_audio_new_amr'], '.WAV'))
+    
     noise_accel =   (load_files(file_paths['smooth_floor_acel'], '.csv') +
-                     load_files(file_paths['tiled_floor_acel'], '.csv'))
+                     load_files(file_paths['tiled_floor_acel'], '.csv') + 
+                     load_files(file_paths['smooth_floor_accel_new_amr'], '.csv'))
     
     good_bearing_audio = (load_files(file_paths['good_bearing_audio_s'], '.WAV') +
                           load_files(file_paths['good_bearing_audio_m'], '.WAV'))
@@ -309,10 +314,10 @@ def main():
     model = 'VAE' 
     
     metrics_file_name = f"{model}_lm_{latent_dim}_{methods}_{target_frames_shape}_results.csv"
-    output_dir_metrics = os.path.join(current_dir, 'AE_Results')
+    output_dir_metrics = os.path.join(current_dir, 'AE_Results', 'NEW_AMR')
        
     model_name = f"{model}_lm_{latent_dim}_{methods}_{target_frames_shape}.keras"
-    model_save_path = os.path.join(current_dir, 'AE_Models', model_name)
+    model_save_path = os.path.join(current_dir, 'AE_Models', 'NEW_AMR', model_name)
     
    
     # Noise samples (considered as regular data)
@@ -430,7 +435,6 @@ def main():
         autoencoder = vae_model_builder(input_shape=input_shape, latent_dim=latent_dim)
         input_shape_with_batch = (batch_size,) + input_shape
         autoencoder.build(input_shape_with_batch)
-        #autoencoder.summary()
         autoencoder.fit(X_train_reshaphed, X_train_reshaphed, epochs=epochs, batch_size=batch_size, callbacks=[early_stopping], validation_split=0.1, verbose=1)                
         # Save the model
         autoencoder.save(model_save_path)

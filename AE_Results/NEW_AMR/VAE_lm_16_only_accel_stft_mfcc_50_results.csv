@@ -1,0 +1,13 @@
+Metric,Value
+Precision,0.735527809307605
+Recall,0.8864569083447332
+F1 Score,0.803970223325062
+Accuracy,0.7838577291381669
+AUC,0.783857729138167
+Optimal Threshold,0.4327702606144924
+Average Reconstruction Error (Regular),0.6191881364798739
+Std. Dev. of Reconstruction Error (Regular),1.7181514369193984
+Average Reconstruction Error (Anomaly),1.0161736543105708
+Std. Dev. of Reconstruction Error (Anomaly),2.8919116344690026
+Inference Time (ms),3.9875975482540045
+Processing Time (ms),23.13419942228188
