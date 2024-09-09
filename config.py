@@ -44,7 +44,7 @@ stft_params = {
 }
 
 # Force 50%-50% dataset
-force_balanced_dataset = True
+force_balanced_dataset = False
 
 
 # Model
@@ -69,8 +69,11 @@ model_params_RF = {
 }
 
 # Save model
-save_model = False
+save_model = True
 
 # Save Metrics
-save_metrics = False
+save_metrics = True
+
+# Load model
+model_load = True
 

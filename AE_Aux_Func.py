@@ -4,11 +4,13 @@ AutoEncoder Auxiliary Functions
 
 import numpy as np
 import random
+import pandas as pd
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
 import plotly.graph_objects as go
 import matplotlib.pyplot as plt
 from sklearn.metrics import f1_score
+import os
 
 
 # Dimensionality reduction function
@@ -144,4 +146,62 @@ def plot_reconstruted_data(n_indices, X, X_pred):
         plt.title('Reconstructed Data')
 
         plt.show()
+        
+
+
+def save_metrics_to_csv(out_dir, file_name, precision, recall, f1, accuracy, auc, optimal_threshold, error_regular, 
+                        std_error_regular, error_anomaly, std_error_anomaly, infer_time, proc_time, threshold_metrics=None):
+    """
+    Save evaluation metrics to a CSV file with metric names in the first column and their values in the second column.
+    
+    Parameters:
+    - out_dir: The directory where the CSV file will be saved.
+    - file_name: The name of the CSV file to save the metrics.
+    - precision: Precision score of the model.
+    - recall: Recall score of the model.
+    - f1: F1 score of the model.
+    - accuracy: Accuracy of the model.
+    - auc: AUC score of the model.
+    - optimal_threshold: Optimal threshold determined for the model.
+    - error_regular: Average reconstruction error for regular data.
+    - std_error_regular: Standard deviation of reconstruction error for regular data.
+    - error_anomaly: Average reconstruction error for anomaly data.
+    - std_error_anomaly: Standard deviation of reconstruction error for anomaly data.
+    - infer_time: Inference time in milliseconds.
+    - proc_time: Processing time in milliseconds.
+    - threshold_metrics: Optional dictionary of metrics for different thresholds (if available).
+    """
+    
+    # Create a list of tuples where each tuple is (metric_name, metric_value)
+    metrics = [
+        ('Precision', precision),
+        ('Recall', recall),
+        ('F1 Score', f1),
+        ('Accuracy', accuracy),
+        ('AUC', auc),
+        ('Optimal Threshold', optimal_threshold),
+        ('Average Reconstruction Error (Regular)', error_regular),
+        ('Std. Dev. of Reconstruction Error (Regular)', std_error_regular),
+        ('Average Reconstruction Error (Anomaly)', error_anomaly),
+        ('Std. Dev. of Reconstruction Error (Anomaly)', std_error_anomaly),
+        ('Inference Time (ms)', infer_time),
+        ('Processing Time (ms)', proc_time)
+    ]
+    
+    # If additional threshold metrics are provided, add them to the list
+    if threshold_metrics is not None:
+        for threshold, metrics_dict in threshold_metrics.items():
+            for metric_name, metric_value in metrics_dict.items():
+                metrics.append((f'{metric_name} at {threshold}', metric_value))
+    
+    # Convert the list of tuples to a DataFrame
+    metrics_df = pd.DataFrame(metrics, columns=['Metric', 'Value'])
+    
+    # Ensure the output directory exists
+    os.makedirs(out_dir, exist_ok=True)
+    
+    # Save the DataFrame to a CSV file
+    metrics_df.to_csv(os.path.join(out_dir, file_name), index=False)
+    
+    print(f"Metrics saved to {os.path.join(out_dir, file_name)}")
     

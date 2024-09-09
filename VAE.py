@@ -307,6 +307,10 @@ def main():
     stft = True
     mfcc = True
     
+    save_model = False      # Save the model to a keras file
+    save_metrics = False    # Save the metrics to a CSV file
+    model_load = False      # Load the model from the saved model file
+    
     # Data preprocessing
     features, labels, methods, pre_proc_time = preprocess_data(stft=stft, mfcc=mfcc, target_frames=target_frames_shape)
     
@@ -336,10 +340,20 @@ def main():
     damaged_bearing_labels = np.array([2] * damaged_bearing_samples.shape[0])   
     
     # Split noise data into training and validation sets
-    X_train, X_val_complete, y_train, y_val_complete = train_test_split(noise_samples, noise_labels, test_size=0.1, random_state=42)
+    X_train, X_val_complete, y_train, y_val_complete = train_test_split(noise_samples, noise_labels, test_size=0.2, random_state=42)
+    
+    # Split noise data into training and validation sets
+    X_val_complete, X_test_complete, y_val_complete, y_test_complete = train_test_split(X_val_complete, y_val_complete, test_size=0.35, random_state=42)
     
     # Further split labeled anomalies into validation and test sets
     bearings_val_complete, bearings_test_complete, bearings_val_labels_complete, bearings_test_labels_complete = train_test_split(bearings_samples, bearings_labels, test_size=0.5, random_state=42)
+    
+    print("\nNumber of Noise Training Samples:", len(X_train))
+    print("Number of Noise Validation Samples:", len(X_val_complete))
+    
+    print("Number of Bearing Validation Samples:", len(bearings_test_complete))
+    print("Number of Bearing Test Samples:", len(bearings_val_complete))   
+    
     
     val_size = min(len(X_val_complete), len(bearings_val_complete))
     
@@ -348,7 +362,12 @@ def main():
     
     # In an ideal situation, the test set should be independent of the training and validation sets. 
     # However, due to the lack of noise data, the noise test set is created with random samples from the the dataset.
-    test_size = min(len(bearings_test_labels_complete), len(noise_labels))
+    #test_size = min(len(bearings_test_labels_complete), len(noise_labels))
+    
+    test_size = min(len(bearings_test_labels_complete), len(X_test_complete))
+    
+    X_test = X_test_complete[:test_size]
+    y_test = y_test_complete[:test_size]
     
     # Force the test set and val set to be balanced to avoid class imbalance and bias in the evaluation and threshold parameterization
     bearings_val = bearings_val_complete[:val_size]
@@ -428,19 +447,18 @@ def main():
     hyperparameters = best_trial.hyperparameters
     print(f"Best trial hyperparameters: {hyperparameters.values}")'''
     
-    if(os.path.exists(model_save_path)): 
+    if(os.path.exists(model_save_path) and model_load): 
         autoencoder = load_model(model_save_path, custom_objects={'VAE': VAE})
         print("Model loaded successfully!")
     else:
         autoencoder = vae_model_builder(input_shape=input_shape, latent_dim=latent_dim)
         input_shape_with_batch = (batch_size,) + input_shape
         autoencoder.build(input_shape_with_batch)
-        autoencoder.fit(X_train_reshaphed, X_train_reshaphed, epochs=epochs, batch_size=batch_size, callbacks=[early_stopping], validation_split=0.1, verbose=1)                
-        # Save the model
-        autoencoder.save(model_save_path)
-        
-        print("Model saved successfully!")
-    
+        autoencoder.fit(X_train_reshaphed, X_train_reshaphed, epochs=epochs, batch_size=batch_size, callbacks=[early_stopping], validation_split=0.1, verbose=1)     
+        if save_model:          
+            # Save the model
+            autoencoder.save(model_save_path)            
+            print("Model saved successfully!")    
    
     # Reconstruction and threshold finding
     start_time = time.time()
@@ -494,10 +512,13 @@ def main():
 
     # Randomly select a predefined number of noise samples to include in the test set
     # In an ideal situation, this set would be independent set, i.e., not used for training or validation
-    predefined_noise_samples_count = len(bearings_test)  # Set the desired number of noise samples
+    '''predefined_noise_samples_count = len(bearings_test)  # Set the desired number of noise samples
     random_noise_indices = np.random.choice(noise_samples.shape[0], predefined_noise_samples_count, replace=False)
     selected_noise_samples = noise_samples[random_noise_indices]
-    selected_noise_labels = noise_labels[random_noise_indices]
+    selected_noise_labels = noise_labels[random_noise_indices]'''
+    
+    selected_noise_samples = X_test
+    selected_noise_labels = y_test
 
     # Predict the reconstruction error for the selected noise samples
     noise_test_predictions = autoencoder.predict(selected_noise_samples)
@@ -548,8 +569,8 @@ def main():
     print(f"Average Inference Time per Sample: {inf_time:.3f} ms")
     print(f"Average Preprocessing Time per Sample: {proc_time:.3f} ms")   
     
-
-    save_metrics_to_csv(output_dir_metrics, metrics_file_name, prec, rec, f1, acc, auc, optimal_threshold, rec_error_noise_avg, rec_error_bearing_avg, rec_error_noise_std, rec_error_bearing_std, inf_time, proc_time)
+    if save_metrics:
+        save_metrics_to_csv(output_dir_metrics, metrics_file_name, prec, rec, f1, acc, auc, optimal_threshold, rec_error_noise_avg, rec_error_bearing_avg, rec_error_noise_std, rec_error_bearing_std, inf_time, proc_time)
 
     # Count the number of noise samples and bearings samples in the test set
     unique, counts = np.unique(combined_test_labels, return_counts=True)
