@@ -10,6 +10,8 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import cross_val_score, StratifiedKFold
 import tensorflow_decision_forests as tfdf
 import tensorflow as tf
+from keras.layers import TFSMLayer
+from keras.models import load_model
 from sklearn.utils import shuffle
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import precision_score, recall_score, f1_score, accuracy_score, classification_report, confusion_matrix
@@ -35,6 +37,12 @@ good_bearing_dir_audio_s = os.path.join(current_dir, 'Dataset_Bearings', 'AMR_ST
 damaged_bearing_dir_audio_s = os.path.join(current_dir, 'Dataset_Bearings', 'AMR_STOPPED', 'DAMAGED', 'AUDIO')
 good_bearing_dir_acel_s = os.path.join(current_dir, 'Dataset_Bearings', 'AMR_STOPPED', 'GOOD', 'ACEL')
 damaged_bearing_dir_acel_s = os.path.join(current_dir, 'Dataset_Bearings', 'AMR_STOPPED', 'DAMAGED', 'ACEL')
+
+good_bearing_dir_audio_new_amr = os.path.join(current_dir, 'Dataset_Bearings', 'NEW_AMR', 'GOOD', 'AUDIO')
+damaged_bearing_dir_audio_new_amr = os.path.join(current_dir, 'Dataset_Bearings', 'NEW_AMR', 'DAMAGED', 'AUDIO')
+good_bearing_dir_accel_new_amr  = os.path.join(current_dir, 'Dataset_Bearings', 'NEW_AMR', 'GOOD', 'ACCEL')
+damaged_bearing_dir_accel_new_amr  = os.path.join(current_dir, 'Dataset_Bearings', 'NEW_AMR', 'DAMAGED', 'ACCEL')
+
 
 # Define noise profile file
 noise_profile_file = os.path.join(current_dir, 'Dataset_Piso', 'Noise.WAV')
@@ -81,13 +89,31 @@ damaged_bearing_files_acel_s = sorted(
     key=sort_key
 )
 
+# Load audio and accelerometer files for NEW_AMR
+good_bearing_files_audio_new_amr = sorted(
+    [os.path.join(good_bearing_dir_audio_new_amr, file) for file in os.listdir(good_bearing_dir_audio_new_amr) if file.endswith('.WAV')],
+    key=sort_key
+)
+damaged_bearing_files_audio_new_amr = sorted(
+    [os.path.join(damaged_bearing_dir_audio_new_amr, file) for file in os.listdir(damaged_bearing_dir_audio_new_amr) if file.endswith('.WAV')],
+    key=sort_key
+)
+good_bearing_files_accel_new_amr = sorted(
+    [os.path.join(good_bearing_dir_accel_new_amr, file) for file in os.listdir(good_bearing_dir_accel_new_amr) if file.endswith('.csv')],
+    key=sort_key
+)
+damaged_bearing_files_accel_new_amr = sorted(
+    [os.path.join(damaged_bearing_dir_accel_new_amr, file) for file in os.listdir(damaged_bearing_dir_accel_new_amr) if file.endswith('.csv')],
+    key=sort_key
+)
+
 # Combine audio files
-good_bearing_files_audio = good_bearing_files_audio_s + good_bearing_files_audio_m 
-damaged_bearing_files_audio = damaged_bearing_files_audio_s + damaged_bearing_files_audio_m  
+good_bearing_files_audio = good_bearing_files_audio_s + good_bearing_files_audio_m + good_bearing_files_audio_new_amr
+damaged_bearing_files_audio = damaged_bearing_files_audio_s + damaged_bearing_files_audio_m + damaged_bearing_files_audio_new_amr
 
 # Combine accelerometer files
-good_bearing_files_acel = good_bearing_files_acel_s + good_bearing_files_acel_m 
-damaged_bearing_files_acel = damaged_bearing_files_acel_s + damaged_bearing_files_acel_m 
+good_bearing_files_acel = good_bearing_files_acel_s + good_bearing_files_acel_m + good_bearing_files_accel_new_amr
+damaged_bearing_files_acel = damaged_bearing_files_acel_s + damaged_bearing_files_acel_m + damaged_bearing_files_accel_new_amr
 
 # Ensure sort order
 good_bearing_files_audio = sorted(good_bearing_files_audio, key=sort_key)
@@ -125,8 +151,6 @@ print(f"Number of samples (Healthy Bearing): {n_samples_healthy}")
 count = 0
 # Process damaged_bearing files
 for audio_file, accel_file in zip(damaged_bearing_files_audio, damaged_bearing_files_acel):
-    #print(audio_file)
-    #print(accel_file)
     audio_features = ppf.extract_audio_features(audio_file, noise_profile_file, config.preprocessing_options)
     accel_features = ppf.extract_accel_features(accel_file)
     combined = {**audio_features, **accel_features}
@@ -163,8 +187,10 @@ if(config.model['GBDT']):
         num_trees=config.model_params_GBDT['num_trees'], 
         growing_strategy=config.model_params_GBDT['growing_strategy'], 
         max_depth=config.model_params_GBDT['max_depth'],
-        early_stopping=config.model_params_GBDT['early_stopping']
+        early_stopping=config.model_params_GBDT['early_stopping'],
+        verbose=1
     )
+    clf.compile(metrics=["accuracy"])
     Folder = 'GBDT'
     model = 'gbdt'
     
@@ -175,34 +201,42 @@ elif (config.model['RF']):
         task=tfdf.keras.Task.CLASSIFICATION, 
         num_trees=config.model_params_RF['num_trees'], 
         growing_strategy=config.model_params_RF['growing_strategy'], 
-        max_depth=config.model_params_RF['max_depth']
+        max_depth=config.model_params_RF['max_depth'],
+        verbose=1
     )
+    #clf.compile(metrics=["accuracy"])
     Folder = 'RF'
     model = 'rf'
+    
+model_save_folder = os.path.join(current_dir, "DTs_Models", Folder)
+model_name = model + '_' + methods_string
+model_save_path = os.path.join(model_save_folder, model_name)
 
-history = clf.fit(X_train, y_train, validation_data=(X_test, y_test), return_dict=True)
-history_dict = history.history
+if(os.path.exists(model_save_path) and config.model_load):
+    print("Model already exists")
+    clf = tf.saved_model.load(model_save_path)
 
-clf.compile(loss='binary_crossentropy', metrics=["accuracy"])
+else:
+    history = clf.fit(X_train, y_train, validation_split=0.1, return_dict=True)
+    history_dict = history.history
 
-clf.summary()
+    clf.summary()
 
-print(history_dict.keys())
+    print(history_dict.keys())
 
+    # Save the model
+    if(config.save_model):
+        os.makedirs(model_save_folder, exist_ok=True)
+        tf.saved_model.save(clf, model_save_path)
 
-# Save the model
-if(config.save_model):
-    model_save_path = os.path.join(current_dir, "saved_model")
-    clf.save(model_save_path)
+    # The training logs
+    logs = clf.make_inspector().training_logs()
 
-# The training logs
-logs = clf.make_inspector().training_logs()
-
-# Final training accuracy and loss
-final_training_accuracy = logs[-1].evaluation.accuracy
-final_training_loss = logs[-1].evaluation.loss
-print(f"Final Training Accuracy: {final_training_accuracy:.4f}")
-print(f"Final Training Loss: {final_training_loss:.4f}")
+    # Final training accuracy and loss
+    final_training_accuracy = logs[-1].evaluation.accuracy
+    final_training_loss = logs[-1].evaluation.loss
+    print(f"Final Training Accuracy: {final_training_accuracy:.4f}")
+    print(f"Final Training Loss: {final_training_loss:.4f}")
 
 # Evaluate the model
 start_time_test_set = time.time()
@@ -236,8 +270,10 @@ plt.ylabel("Logloss (out-of-bag)")
 plt.tight_layout()
 
 # Save the combined plot
-if(config.save_metrics):
-    results_plot_path = os.path.join(current_dir, 'Results', 'FULL_DATASET', Folder, model + '_acc_loss_' + methods_string + '_2048.svg')
+if(config.save_metrics):    
+    results_plot_folder = os.path.join(current_dir, 'DT_Results', 'NEW_AMR', Folder)
+    results_plot_path = os.path.join(current_dir, 'DT_Results', 'NEW_AMR', Folder, model + '_acc_loss_' + methods_string + '.svg')
+    os.makedirs(results_plot_folder, exist_ok=True)
     plt.savefig(results_plot_path, format='svg')
 
 plt.show()
@@ -298,7 +334,9 @@ plt.tight_layout()
 
 # Save the residual plot
 if(config.save_metrics):
-    results_plot_path = os.path.join(current_dir, 'Results', 'FULL_DATASET', Folder, model + '_conf_matrix_' + methods_string + '_2048.svg')
+    results_plot_folder = os.path.join(current_dir, 'DT_Results', 'NEW_AMR', Folder)
+    results_plot_path = os.path.join(current_dir, 'DT_Results', 'NEW_AMR', Folder, model + '_conf_matrix_' + methods_string + '.svg')
+    os.makedirs(results_plot_folder, exist_ok=True)
     plt.savefig(results_plot_path, format='svg')
 
 plt.show()
@@ -307,9 +345,9 @@ plt.show()
 
 # Gather all metrics
 metrics_dict = {
-    'Metric': ['Precision', 'Recall', 'F1 Score', 'Accuracy', 'Loss', 'Training Accuracy', 'Training Loss',
+    'Metric': ['Precision', 'Recall', 'F1 Score', 'Accuracy', 'Loss',
                'Average Pre-processing Time','Average Inference Time'],
-    'Value': [precision, recall, f1, accuracy, test_loss, final_training_accuracy, final_training_loss,
+    'Value': [precision, recall, f1, accuracy, test_loss,
               average_pre_proc_time, average_inference_time]
 }
 # Save Metrics
@@ -318,7 +356,9 @@ if(config.save_metrics):
     metrics_df = pd.DataFrame(metrics_dict)
 
     # Save DataFrame to CSV
-    metrics_save_path = os.path.join(current_dir, 'Results', 'FULL_DATASET', Folder, model + '_metrics_' + methods_string + '_2048.csv')
+    metrics_save_folder = os.path.join(current_dir, 'DT_Results', 'NEW_AMR', Folder)
+    metrics_save_path = os.path.join(current_dir, 'DT_Results', 'NEW_AMR', Folder, model + '_metrics_' + methods_string + '.csv')
+    os.makedirs(metrics_save_folder, exist_ok=True)
     metrics_df.to_csv(metrics_save_path, index=False)
 
     print("\nMetrics saved to CSV:")

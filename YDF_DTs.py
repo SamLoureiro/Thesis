@@ -1,19 +1,9 @@
 import os
 import time
-import warnings
 import numpy as np
 import pandas as pd
-import librosa
-import noisereduce as nr
-from scipy.stats import kurtosis, skew
 from sklearn.preprocessing import StandardScaler
-from sklearn.model_selection import cross_val_score, StratifiedKFold
-import tensorflow_decision_forests as tfdf
-import tensorflow as tf
 import ydf
-from keras.layers import TFSMLayer
-from keras.models import load_model
-from sklearn.utils import shuffle
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import precision_score, recall_score, f1_score, accuracy_score, classification_report, confusion_matrix
 import matplotlib.pyplot as plt
@@ -23,7 +13,6 @@ import PreProc_Function as ppf
 from imblearn.over_sampling import SMOTE
 
 # For Future Use
-#from imblearn.over_sampling import SMOTE
 #from sklearn.feature_selection import SelectKBest, f_classif
 #from sklearn.model_selection import GridSearchCV
 
@@ -57,6 +46,9 @@ def sort_key(file_path):
 
 def perform_evaluation_and_prediction(model, X_test, Folder, model_string):
     
+    print("\nModel Description:")
+    model.describe()
+    
     evaluation = model.evaluate(X_test)
     
     print(model.benchmark(X_test))
@@ -77,6 +69,17 @@ def perform_evaluation_and_prediction(model, X_test, Folder, model_string):
     
     #print("\nPredictions Analyzed:")
     #model.analyze_prediction(X_test, sampling=0.1)
+    
+    print("\nVariable importances keys:")
+    print(model.variable_importances().keys())
+    
+    print("\n10 most important features:")
+    print(model.variable_importances()["SUM_SCORE"][:10])
+    
+    print("\n10 less important features:")
+    print(model.variable_importances()["SUM_SCORE"][-10:])
+    
+    print("\nPredictions:")
     
     # Convert predicted probabilities to binary class labels
     y_pred = (y_pred_probs > 0.5).astype(int).flatten()
@@ -291,7 +294,8 @@ print(f"Combined Features Shape: {combined_features_normalized.shape}")
 y = np.array(labels)
 
 # Convert features to a DataFrame
-features_df = pd.DataFrame(combined_features_normalized, columns=[f"feature_{i}" for i in range(combined_features_normalized.shape[1])])
+#features_df = pd.DataFrame(combined_features_normalized, columns=0)
+features_df = combined_features_df
 
 # Convert labels to a DataFrame
 labels_df = pd.DataFrame(y, columns=["label"])
@@ -330,9 +334,6 @@ if(config.model['GBDT']):
         )
         model = clf.train(X_train, verbose=2)
         
-        print("\nModel Description:")
-        model.describe()
-        
         print("\nValidation Results:")
         val_results = model.validation_evaluation()        
         print(val_results)
@@ -362,9 +363,6 @@ elif(config.model['RF']):
         )
         model = clf.train(X_train, verbose=2)
         
-        print("\nModel Description:")
-        model.describe()
-        
         # As the Random Forest model does not require a validation set, we will use the out-of-bag evaluations
         print("\nOut of_bag evaluations:")
         val_results = model.out_of_bag_evaluations()        
@@ -377,8 +375,8 @@ elif(config.model['RF']):
             model.save(model_save_path)
             
         
-### perform evaluation and prediction    
+### perform evaluation and prediction
 perform_evaluation_and_prediction(model, X_test, metrics_folder, model_string)
-
+model.variable_importances()
 # Evaluation caracteristics can be accessed by the code in the comment below
 #evaluation.characteristics[0]. ...
