@@ -15,71 +15,21 @@ import numpy as np
 import pandas as pd
 import config
 import random
+import json 
+import matplotlib.pyplot as plt
+import seaborn as sns
+import PreProc_Function as ppf
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import (precision_score, recall_score, f1_score, roc_auc_score, 
                              confusion_matrix, accuracy_score, roc_curve, classification_report, precision_recall_curve)
 from sklearn.model_selection import train_test_split
-import tensorflow as tf
 from keras.callbacks import EarlyStopping
-from keras.layers import Input, Dense, BatchNormalization, Dropout, Lambda
-from keras.models import Model
-from keras.optimizers import Adam
+from keras.models import load_model
 from keras_tuner import HyperModel, HyperParameters, BayesianOptimization, Hyperband
-import matplotlib.pyplot as plt
-import seaborn as sns
-import PreProc_Function as ppf
-from UN_CNN_Models import VDAE, vdae_model_builder
-from AE_Aux_Func import reduce_dimensions, plot_reduced_data, plot_metrics_vs_threshold, find_optimal_threshold_f1
+from UN_CNN_Models import VDAE, vdae_model_builder, DENSE
+from UN_CNN_Models_TuningVersion import DENSE_TUNING
+from AE_Aux_Func import reduce_dimensions, plot_reduced_data, plot_metrics_vs_threshold, find_optimal_threshold_f1, save_metrics_to_csv
 
-
-class DENSE(HyperModel):
-    def __init__(self, input_dim):
-        self.input_dim = input_dim
-
-    def build(self, hp):
-        if not isinstance(hp, HyperParameters):
-            raise ValueError("Expected 'hp' to be an instance of 'HyperParameters'.")
-
-        noise_factor = hp.Float('noise_factor', min_value=0.1, max_value=0.5, step=0.05)
-        units_1 = hp.Int('units_1', min_value=128, max_value=512, step=32)
-        dropout_1 = hp.Float('dropout_1', min_value=0.1, max_value=0.5, step=0.05)
-        units_2 = hp.Int('units_2', min_value=64, max_value=256, step=32)
-        dropout_2 = hp.Float('dropout_2', min_value=0.1, max_value=0.5, step=0.05)
-        units_3 = hp.Int('units_3', min_value=32, max_value=128, step=32)
-        bottleneck_units = hp.Int('bottleneck_units', min_value=16, max_value=64, step=8)
-        dropout_3 = hp.Float('dropout_3', min_value=0.1, max_value=0.5, step=0.05)
-        dropout_4 = hp.Float('dropout_4', min_value=0.1, max_value=0.5, step=0.05)
-        learning_rate = hp.Float('learning_rate', min_value=1e-4, max_value=1e-2, sampling='log')
-
-        input_layer = Input(shape=(self.input_dim,))
-        noisy_inputs = Lambda(lambda x: x + noise_factor * tf.random.normal(tf.shape(x)))(input_layer)
-        
-        # Encoder
-        encoded = Dense(units_1, activation='relu')(noisy_inputs)
-        encoded = BatchNormalization()(encoded)
-        encoded = Dropout(dropout_1)(encoded)
-        encoded = Dense(units_2, activation='relu')(encoded)
-        encoded = BatchNormalization()(encoded)
-        encoded = Dropout(dropout_2)(encoded)
-        encoded = Dense(units_3, activation='relu')(encoded)
-        
-        # Bottleneck
-        bottleneck = Dense(bottleneck_units, activation='relu')(encoded)
-        
-        # Decoder
-        decoded = Dense(units_3, activation='relu')(bottleneck)
-        decoded = BatchNormalization()(decoded)
-        decoded = Dropout(dropout_3)(decoded)
-        decoded = Dense(units_2, activation='relu')(decoded)
-        decoded = BatchNormalization()(decoded)
-        decoded = Dropout(dropout_4)(decoded)
-        decoded = Dense(units_1, activation='relu')(decoded)
-        decoded = Dense(self.input_dim, activation='sigmoid')(decoded)
-        
-        autoencoder = Model(input_layer, decoded)
-        autoencoder.compile(optimizer=Adam(learning_rate=learning_rate),
-                            loss='mse')        
-        return autoencoder
 
 
 # Define directories and file paths
@@ -91,16 +41,22 @@ def define_directories():
             'acel_m': os.path.join(current_dir, 'Dataset_Bearings', 'AMR_MOVEMENT', 'GOOD', 'ACEL'),
             'audio_s': os.path.join(current_dir, 'Dataset_Bearings', 'AMR_STOPPED', 'GOOD', 'AUDIO'),
             'acel_s': os.path.join(current_dir, 'Dataset_Bearings', 'AMR_STOPPED', 'GOOD', 'ACEL'),
+            'audio_new_amr': os.path.join(current_dir, 'Dataset_Bearings', 'NEW_AMR', 'GOOD', 'AUDIO'),
+            'accel_new_amr': os.path.join(current_dir, 'Dataset_Bearings', 'NEW_AMR', 'GOOD', 'ACCEL'),
         },
         'damaged_bearing': {
             'audio_s': os.path.join(current_dir, 'Dataset_Bearings', 'AMR_STOPPED', 'DAMAGED', 'AUDIO'),
             'acel_s': os.path.join(current_dir, 'Dataset_Bearings', 'AMR_STOPPED', 'DAMAGED', 'ACEL'),
             'audio_m': os.path.join(current_dir, 'Dataset_Bearings', 'AMR_MOVEMENT', 'DAMAGED', 'AUDIO'),
             'acel_m': os.path.join(current_dir, 'Dataset_Bearings', 'AMR_MOVEMENT', 'DAMAGED', 'ACEL'),
+            'audio_new_amr': os.path.join(current_dir, 'Dataset_Bearings', 'NEW_AMR', 'DAMAGED', 'AUDIO'),
+            'accel_new_amr': os.path.join(current_dir, 'Dataset_Bearings', 'NEW_AMR', 'DAMAGED', 'ACCEL'),
         },
         'smooth_floor': {
             'audio': os.path.join(current_dir, 'Dataset_Piso', 'LISO', 'SAMPLES_1s', 'AUDIO'),
             'acel': os.path.join(current_dir, 'Dataset_Piso', 'LISO', 'SAMPLES_1s', 'ACCEL'),
+            'audio_new_amr': os.path.join(current_dir, 'Dataset_Piso', 'NEW_AMR', 'LISO', 'SAMPLES_1s', 'AUDIO'),
+            'accel_new_amr': os.path.join(current_dir, 'Dataset_Piso', 'NEW_AMR', 'LISO', 'SAMPLES_1s', 'ACCEL')
         },
         'tiled_floor': {
             'audio': os.path.join(current_dir, 'Dataset_Piso', 'TIJOLEIRA', 'SAMPLES_1s', 'AUDIO'),
@@ -129,9 +85,11 @@ def load_and_extract_features(directories):
     # Process good bearings
     for audio_file, accel_file in zip(
         sorted([os.path.join(directories['good_bearing']['audio_s'], file) for file in os.listdir(directories['good_bearing']['audio_s']) if file.endswith('.WAV')], key=sort_key) +
-        sorted([os.path.join(directories['good_bearing']['audio_m'], file) for file in os.listdir(directories['good_bearing']['audio_m']) if file.endswith('.WAV')], key=sort_key),
+        sorted([os.path.join(directories['good_bearing']['audio_m'], file) for file in os.listdir(directories['good_bearing']['audio_m']) if file.endswith('.WAV')], key=sort_key) + 
+        sorted([os.path.join(directories['good_bearing']['audio_new_amr'], file) for file in os.listdir(directories['good_bearing']['audio_new_amr']) if file.endswith('.WAV')], key=sort_key),
         sorted([os.path.join(directories['good_bearing']['acel_s'], file) for file in os.listdir(directories['good_bearing']['acel_s']) if file.endswith('.csv')], key=sort_key) +
-        sorted([os.path.join(directories['good_bearing']['acel_m'], file) for file in os.listdir(directories['good_bearing']['acel_m']) if file.endswith('.csv')], key=sort_key)
+        sorted([os.path.join(directories['good_bearing']['acel_m'], file) for file in os.listdir(directories['good_bearing']['acel_m']) if file.endswith('.csv')], key=sort_key) +
+        sorted([os.path.join(directories['good_bearing']['accel_new_amr'], file) for file in os.listdir(directories['good_bearing']['accel_new_amr']) if file.endswith('.csv')], key=sort_key)
     ):
         audio_features = ppf.extract_audio_features(audio_file, directories['noise_profile'], config.preprocessing_options)
         accel_features = ppf.extract_accel_features(accel_file)
@@ -145,9 +103,11 @@ def load_and_extract_features(directories):
     # Process damaged bearings
     for audio_file, accel_file in zip(
         sorted([os.path.join(directories['damaged_bearing']['audio_s'], file) for file in os.listdir(directories['damaged_bearing']['audio_s']) if file.endswith('.WAV')], key=sort_key) +
-        sorted([os.path.join(directories['damaged_bearing']['audio_m'], file) for file in os.listdir(directories['damaged_bearing']['audio_m']) if file.endswith('.WAV')], key=sort_key),
+        sorted([os.path.join(directories['damaged_bearing']['audio_m'], file) for file in os.listdir(directories['damaged_bearing']['audio_m']) if file.endswith('.WAV')], key=sort_key) +
+        sorted([os.path.join(directories['damaged_bearing']['audio_new_amr'], file) for file in os.listdir(directories['damaged_bearing']['audio_new_amr']) if file.endswith('.WAV')], key=sort_key),
         sorted([os.path.join(directories['damaged_bearing']['acel_s'], file) for file in os.listdir(directories['damaged_bearing']['acel_s']) if file.endswith('.csv')], key=sort_key) +
-        sorted([os.path.join(directories['damaged_bearing']['acel_m'], file) for file in os.listdir(directories['damaged_bearing']['acel_m']) if file.endswith('.csv')], key=sort_key)
+        sorted([os.path.join(directories['damaged_bearing']['acel_m'], file) for file in os.listdir(directories['damaged_bearing']['acel_m']) if file.endswith('.csv')], key=sort_key) +
+        sorted([os.path.join(directories['damaged_bearing']['accel_new_amr'], file) for file in os.listdir(directories['damaged_bearing']['accel_new_amr']) if file.endswith('.csv')], key=sort_key)
     ):
         audio_features = ppf.extract_audio_features(audio_file, directories['noise_profile'], config.preprocessing_options)
         accel_features = ppf.extract_accel_features(accel_file)
@@ -161,9 +121,11 @@ def load_and_extract_features(directories):
     # Process floor noise
     for audio_file, accel_file in zip(
         sorted([os.path.join(directories['smooth_floor']['audio'], file) for file in os.listdir(directories['smooth_floor']['audio']) if file.endswith('.WAV')], key=sort_key) +
-        sorted([os.path.join(directories['tiled_floor']['audio'], file) for file in os.listdir(directories['tiled_floor']['audio']) if file.endswith('.WAV')], key=sort_key),
+        sorted([os.path.join(directories['tiled_floor']['audio'], file) for file in os.listdir(directories['tiled_floor']['audio']) if file.endswith('.WAV')], key=sort_key) +
+        sorted([os.path.join(directories['smooth_floor']['audio_new_amr'], file) for file in os.listdir(directories['smooth_floor']['audio_new_amr']) if file.endswith('.WAV')], key=sort_key),
         sorted([os.path.join(directories['smooth_floor']['acel'], file) for file in os.listdir(directories['smooth_floor']['acel']) if file.endswith('.csv')], key=sort_key) +
-        sorted([os.path.join(directories['tiled_floor']['acel'], file) for file in os.listdir(directories['tiled_floor']['acel']) if file.endswith('.csv')], key=sort_key)
+        sorted([os.path.join(directories['tiled_floor']['acel'], file) for file in os.listdir(directories['tiled_floor']['acel']) if file.endswith('.csv')], key=sort_key) +
+        sorted([os.path.join(directories['smooth_floor']['accel_new_amr'], file) for file in os.listdir(directories['smooth_floor']['accel_new_amr']) if file.endswith('.csv')], key=sort_key)
     ):
         audio_features = ppf.extract_audio_features(audio_file, directories['noise_profile'], config.preprocessing_options)
         accel_features = ppf.extract_accel_features(accel_file)
@@ -209,35 +171,69 @@ def main():
     scaler = StandardScaler()
     features = scaler.fit_transform(combined_features_normalized)
 
+    # Change the model name to the desired model
+    model = 'DAE' 
+
     # Noise samples (considered as regular data)
     noise_samples = features[np.array(labels) == 0]    
     noise_labels = np.array([0] * noise_samples.shape[0])  # All labels in training set are 0
-
+ 
     # Bearing samples (considered as anomalies)
     bearings_samples = features[np.array(labels) != 0]
     bearings_labels = np.array(labels)[np.array(labels) != 0] 
-
+    
     # Split bearing samples into good and damaged bearings (For later use)
     good_bearing_samples = features[np.array(labels) == 1]
     good_bearing_labels = np.array([1] * good_bearing_samples.shape[0])
-
+    
     damaged_bearing_samples = features[np.array(labels) == 2]
     damaged_bearing_labels = np.array([2] * damaged_bearing_samples.shape[0])   
-
+    
     # Split noise data into training and validation sets
-    X_train, X_val, y_train, y_val = train_test_split(noise_samples, noise_labels, test_size=0.1, random_state=42)
-
+    X_train, X_val_complete, y_train, y_val_complete = train_test_split(noise_samples, noise_labels, test_size=0.2, random_state=42)
+    
+    # Split noise data into training and validation sets
+    X_val_complete, X_test_complete, y_val_complete, y_test_complete = train_test_split(X_val_complete, y_val_complete, test_size=0.35, random_state=42)
+    
     # Further split labeled anomalies into validation and test sets
-    bearings_train, bearings_test, bearings_train_labels, bearings_test_labels = train_test_split(bearings_samples, bearings_labels, test_size=0.5, random_state=42)
-
-    bearings_train = bearings_train[:95]
-    bearings_test = bearings_test[:95]
-    bearings_train_labels = bearings_train_labels[:95]
-    bearings_test_labels = bearings_test_labels[:95]
-
-
-    bearings_train_labels_ae = np.ones(len(bearings_train_labels))
+    bearings_val_complete, bearings_test_complete, bearings_val_labels_complete, bearings_test_labels_complete = train_test_split(bearings_samples, bearings_labels, test_size=0.5, random_state=42)
+    
+    print("\nNumber of Noise Training Samples:", len(X_train))
+    print("Number of Noise Validation Samples:", len(X_val_complete))
+    
+    print("Number of Bearing Validation Samples:", len(bearings_test_complete))
+    print("Number of Bearing Test Samples:", len(bearings_val_complete))   
+    
+    
+    val_size = min(len(X_val_complete), len(bearings_val_complete))
+    
+    X_val = X_val_complete[:val_size]
+    y_val = y_val_complete[:val_size]
+    
+    # In an ideal situation, the test set should be independent of the training and validation sets. 
+    # However, due to the lack of noise data, the noise test set is created with random samples from the the dataset.
+    #test_size = min(len(bearings_test_labels_complete), len(noise_labels))
+    
+    test_size = min(len(bearings_test_labels_complete), len(X_test_complete))
+    
+    X_test = X_test_complete[:test_size]
+    y_test = y_test_complete[:test_size]
+    
+    # Force the test set and val set to be balanced to avoid class imbalance and bias in the evaluation and threshold parameterization
+    bearings_val = bearings_val_complete[:val_size]
+    bearings_test = bearings_test_complete[:test_size]
+    bearings_val_labels = bearings_val_labels_complete[:val_size]
+    bearings_test_labels = bearings_test_labels_complete[:test_size]
+    
+    # The remaining bearing samples are used for the final evaluation
+    # The remaining bearing samples are used for the final evaluation
+    only_bearings_eval = np.concatenate((bearings_val_complete[val_size:], bearings_test_complete[test_size:]))
+    only_bearings_eval_labels = np.concatenate((bearings_val_labels[val_size:], bearings_test_labels[test_size:]))
+    
+    
+    bearings_val_labels_ae = np.ones(len(bearings_val_labels))
     bearings_test_labels_ae = np.ones(len(bearings_test_labels)) 
+    bearings_eval_labels_ae = np.ones(len(only_bearings_eval_labels))
 
     # The data shape is (number of samples x number of features)
 
@@ -245,48 +241,83 @@ def main():
 
     input_shape = X_train.shape[1]
     
-    print("First sample in the training set:")
-    print(X_train[0])
+    #print("First sample in the training set:")
+    #print(X_train[0])
     
-    print("Number of NaN is dataset ", np.count_nonzero(np.isnan(input_shape)))
+    #print("Number of NaN is dataset ", np.count_nonzero(np.isnan(input_shape)))
     
     print(f"Input shape: {input_shape}")
     
     # Epochs and batch size
-    epochs = 100
-    batch_size = 32
-    latent_dim = 8
-
-    # Define directories
-    current_dir = os.getcwd()
-    tuner_dir = os.path.join(current_dir, 'Hyperband_Tuning', 'VAE_DENSE')
-    project_name = 'AE_TB_' + str(batch_size) + 'bs_' + pre_proc_string
-
+    epochs = 300
+    batch_size = 64
     
-    # Early stopping setup
-    early_stopping = EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True, verbose=1)
+    # Only for VDAE
+    latent_dim = 32
+    
+    # Define directories
+    current_dir = os.getcwd()    
+    project_name = 'AE_TB_' + str(batch_size) + 'bs_' + pre_proc_string
+    #pre_proc_string = pre_proc_string + '_96k'
+    model_string = 'DENSE'
+    
+    if model == 'VDAE':
+        model_string = 'VDAE_lm_' + str(latent_dim)
+        
+    else:
+        model_string = model
+        
+    metrics_file_name = f"{model_string}_{pre_proc_string}_results.csv"
+    output_dir_metrics = os.path.join(current_dir, 'AE_Results', 'NEW_AMR')
+       
+    model_name = f"{model_string}_{pre_proc_string}.keras"
+    save_parameters_name = f"{model_string}_{pre_proc_string}_parameters.json"        
 
-    '''# Define the BayesianOptimization tuner
+    '''
+    # For Bayesian tuning
+    model_save_path = os.path.join(current_dir, 'AE_Models', 'NEW_AMR', 'Bayesian', model_name) 
+    parameters_save_path = os.path.join(current_dir, 'AE_Models', 'NEW_AMR', 'Bayesian', save_parameters_name)
+    tuner_dir = os.path.join(current_dir, 'Bayesian_Tuning', 'NEW_AMR', 'AE_DENSE')
+    
     tuner = BayesianOptimization(
-        hypermodel=DENSE(input_shape),
+        hypermodel=DENSE_TUNING(input_dim=input_shape),
         objective='val_loss',
         max_trials=20,
-        executions_per_trial=1,
+        executions_per_trial=2,
         directory=tuner_dir,
         project_name=project_name
-    )
+    )'''
 
-    tuner = Hyperband(lambda hp: vdae_model_builder(hp, input_shape=input_shape),
+    # For Hyperband tuning
+    model_save_path = os.path.join(current_dir, 'AE_Models', 'NEW_AMR', 'Hyperband', model_name) 
+    parameters_save_path = os.path.join(current_dir, 'AE_Models', 'NEW_AMR', 'Hyperband', save_parameters_name)    
+    tuner_dir = os.path.join(current_dir, 'Hyperband_Tuning', 'NEW_AMR', 'AE_DENSE')
+        
+    # For Dense Autoencoder
+    tuner = Hyperband(DENSE_TUNING(input_dim=input_shape),
                     objective='val_loss',
                     max_epochs=epochs,
                     factor=3,
                     directory=tuner_dir,
                     project_name=project_name)
     
+    # For Variational Dense Autoencoder
+    '''tuner = Hyperband(lambda hp: vdae_model_builder_Tuning(hp, input_dim=input_shape),
+                    objective='val_loss',
+                    max_epochs=epochs,
+                    factor=3,
+                    directory=tuner_dir,
+                    project_name=project_name)'''
+                    
+    # Early stopping setup
+    early_stopping = EarlyStopping(monitor='val_loss', patience=50, restore_best_weights=True, verbose=1)
+    
     try:
         # Attempt to load the best model
         autoencoder = tuner.get_best_models(num_models=1)[0]
-    except IndexError:
+        #autoencoder = load_model(model_save_path, custom_objects={'DENSE_TUNING': DENSE_TUNING})
+        
+    except ValueError or IndexError:
         # Handle the case where no best model is available
         print("No best model found. Performing search.")
 
@@ -296,41 +327,69 @@ def main():
         # Try again to get the best model after the search
         try:
             autoencoder = tuner.get_best_models(num_models=1)[0]
+            autoencoder.save(model_save_path)
+            
+            best_trial = tuner.oracle.get_best_trials(1)[0]
+            print(f"Best trial: {best_trial.trial_id}")
+            print(f"Best trial value: {best_trial.score}")
+
+            # Best hyperparameters
+            hyperparameters = best_trial.hyperparameters
+            print(f"Best trial hyperparameters: {hyperparameters.values}")
+            
+            # Convert and write JSON object to file
+            with open(parameters_save_path, "w") as outfile: 
+                json.dump(hyperparameters.values, outfile)
+            autoencoder.summary()
+            
         except IndexError:
             print("Search completed, but no best model was found.")
             exit(1)
     
-    best_trial = tuner.oracle.get_best_trials(1)[0]
-
-    print(f"Best trial: {best_trial.trial_id}")
-    print(f"Best trial value: {best_trial.score}")
-
-    # Best hyperparameters
-    hyperparameters = best_trial.hyperparameters
-    print(f"Best trial hyperparameters: {hyperparameters.values}")
 
     # Build the best model using the best hyperparameters
-    autoencoder = DENSE(input_shape).build(hyperparameters)'''
-    
-       
-    # Build the model
-    autoencoder = vdae_model_builder(input_shape, latent_dim)
-    
-    # Train the model
-    autoencoder.fit(X_train, X_train, epochs=epochs, batch_size=batch_size, callbacks=[early_stopping], validation_data=(X_val, X_val), verbose=1)
-    
+    #autoencoder = DENSE_TUNING(input_shape).build(hyperparameters)
+    #autoencoder.fit(X_train, X_train, epochs=epochs, batch_size=batch_size, callbacks=[early_stopping], validation_split=0.1, verbose=1)
+   
+    '''if(os.path.exists(model_save_path) and config.model_load): 
+        autoencoder = load_model(model_save_path, custom_objects={'VDAE': VDAE})
+        print("Model loaded successfully!")
+    else:
+        if(model == 'VDAE'):
+            autoencoder = vdae_model_builder(input_shape=input_shape, latent_dim=latent_dim)
+            input_shape_with_batch = (batch_size, input_shape)
+            autoencoder.build(input_shape_with_batch)
+        else:
+            autoencoder = DENSE(input_shape).build()
+            #autoencoder.build(input_shape)
+        history = autoencoder.fit(X_train, X_train, epochs=epochs, batch_size=batch_size, callbacks=[early_stopping], validation_split=0.1, verbose=1) 
+        #autoencoder.fit(X_train, X_train, epochs=epochs, batch_size=batch_size, validation_split=0.1, verbose=1)         
+        if config.save_model:          
+            # Save the model
+            autoencoder.save(model_save_path)            
+            print("Model saved successfully!")    
+            
+    # Plot training & validation loss values
+    plt.plot(history.history['loss'], label='Training Loss')
+    plt.plot(history.history['val_loss'], label='Validation Loss')
+    plt.title('Model Loss')
+    plt.ylabel('Loss')
+    plt.xlabel('Epoch')
+    plt.legend(loc='upper right')
+    plt.show()'''
+
+   
     # Reconstruction and threshold finding
     start_time = time.time()
     val_predictions = autoencoder.predict(X_val)
     inference_time = time.time() - start_time
     
     # Get the reconstruction error on the validation set
-    val_errors = np.mean(np.square(X_val - val_predictions), axis=1)   
+    val_errors = np.mean(np.square(X_val - val_predictions), axis=1)
 
-        
     # Get the reconstruction error on the labeled validation anomalies
-    bearing_val_predictions = autoencoder.predict(bearings_train)
-    bearing_val_errors = np.mean(np.square(bearings_train - bearing_val_predictions), axis=1)
+    bearing_val_predictions = autoencoder.predict(bearings_val)
+    bearing_val_errors = np.mean(np.square(bearings_val - bearing_val_predictions), axis=1)
     
     # Tune the threshold based on precision-recall curve
     # Labels for the validation set should be all 0 (normal) and for the labeled validation anomalies should be 1 (anomalous)
@@ -341,39 +400,50 @@ def main():
     combined_errors = np.concatenate([val_errors, bearing_val_errors])
     combined_labels = np.concatenate([y_val_binary, y_bearing_binary])
 
-    # Calculate precision, recall, and thresholds
+    '''# Calculate precision, recall, and thresholds
     precision, recall, thresholds = precision_recall_curve(combined_labels, combined_errors)
 
     # Calculate the absolute difference between precision and recall
     diff = abs(precision - recall)
 
     # Find the index of the minimum difference
-    optimal_idx = np.argmin(diff)
+    optimal_idx = np.argmin(diff)   
 
     # Get the optimal threshold
+    optimal_threshold = thresholds[optimal_idx]'''
+    
+    #optimal_threshold = find_optimal_threshold_f1(combined_errors, combined_labels)
+    
+    # Calculate ROC curve
+    fpr, tpr, thresholds = roc_curve(combined_labels, combined_errors)
+
+    # Find the optimal threshold
+    optimal_idx = np.argmax(tpr - fpr)  # This gives you the threshold with the maximum difference between TPR and FPR
     optimal_threshold = thresholds[optimal_idx]
-    
-    optimal_threshold = 0.4548
-    
-    #optimal_threshold = 0.837   
-    print(f"Optimal Threshold: {optimal_threshold:.3f}")
+
+    print(f"Optimal Threshold (ROC): {optimal_threshold}")
+
+    print(f"Optimal threshold: {optimal_threshold}")
     
     # Final evaluation on the test set
     bearing_test_predictions = autoencoder.predict(bearings_test)
     bearing_test_errors = np.mean(np.square(bearings_test - bearing_test_predictions), axis=1)
 
     # Randomly select a predefined number of noise samples to include in the test set
-    predefined_noise_samples_count = len(bearings_test)  # Set the desired number of noise samples
+    # In an ideal situation, this set would be independent set, i.e., not used for training or validation
+    '''predefined_noise_samples_count = len(bearings_test)  # Set the desired number of noise samples
     random_noise_indices = np.random.choice(noise_samples.shape[0], predefined_noise_samples_count, replace=False)
     selected_noise_samples = noise_samples[random_noise_indices]
-    selected_noise_labels = noise_labels[random_noise_indices]
+    selected_noise_labels = noise_labels[random_noise_indices]'''
+    
+    selected_noise_samples = X_test
+    selected_noise_labels = y_test
 
     # Predict the reconstruction error for the selected noise samples
     noise_test_predictions = autoencoder.predict(selected_noise_samples)
     noise_test_errors = np.mean(np.square(selected_noise_samples - noise_test_predictions), axis=1)
 
     # Combine the noise and bearing errors
-    combined_test_data = np.concatenate([bearings_test, selected_noise_samples])
     combined_test_errors = np.concatenate([bearing_test_errors, noise_test_errors])
     combined_test_labels = np.concatenate([bearings_test_labels_ae, selected_noise_labels])
 
@@ -385,26 +455,41 @@ def main():
 
     print(classification_report(combined_test_labels, predicted_labels, target_names=["Noise", "Anomaly"]))
     
+    rec_error_noise_avg = np.mean(val_errors)
+    rec_error_bearing_avg = np.mean(bearing_val_errors)
+    rec_error_noise_std = np.std(val_errors)
+    rec_error_bearing_std = np.std(bearing_val_errors)
+    
     print("Reconstruction Errors:")
     print("Average Reconstruction Error for Validation Data (only noise):")
-    print(f'Mean Reconstruction Error: {np.mean(val_errors)}')
-    print(f'Standard Deviation of Reconstruction Error: {np.std(val_errors)}')
+    print(f'Mean Reconstruction Error: {rec_error_noise_avg}')
+    print(f'Standard Deviation of Reconstruction Error: {rec_error_noise_std}')
     print("Average Reconstruction Error for Validation Data (only bearings):")
-    print(f'Mean Reconstruction Error: {np.mean(bearing_val_predictions)}')
-    print(f'Standard Deviation of Reconstruction Error: {np.std(bearing_val_errors)}')
+    print(f'Mean Reconstruction Error: {rec_error_bearing_avg}')
+    print(f'Standard Deviation of Reconstruction Error: {rec_error_bearing_std}')
     print("\n")
+    
+    acc = accuracy_score(combined_test_labels, predicted_labels)
+    prec = precision_score(combined_test_labels, predicted_labels)
+    rec = recall_score(combined_test_labels, predicted_labels)
+    f1 = f1_score(combined_test_labels, predicted_labels)
+    auc = roc_auc_score(combined_test_labels, predicted_labels)
+    inf_time = inference_time / len(X_val) * 1000
+    proc_time = pre_proc_time / (len(y_train) + len(y_val)) * 1000
     
     # Global Evaluation
     print("Evaluation:")
     print(f"Optimal Threshold: {optimal_threshold:.3f}")  
-    print(f"Accuracy: {accuracy_score(combined_test_labels, predicted_labels):.3f}")
-    print(f"Precision: {precision_score(combined_test_labels, predicted_labels):.3f}")
-    print(f"Recall: {recall_score(combined_test_labels, predicted_labels):.3f}")
-    print(f"F1 Score: {f1_score(combined_test_labels, predicted_labels):.3f}")
-    print(f"AUC: {roc_auc_score(combined_test_labels, predicted_labels):.3f}")
-    print(f"Average inference time per sample: {(inference_time / len(X_val)) * 1000:.3f} ms")
-    print(f"Average processing time per sample: {(pre_proc_time / (len(y_train) + len(y_val)) * 1000):.3f} ms")
-
+    print(f"Accuracy: {acc:.3f}")
+    print(f"Precision: {prec:.3f}")
+    print(f"Recall: {rec:.3f}")
+    print(f"F1 Score: {f1:.3f}")
+    print(f"AUC: {auc:.3f}")
+    print(f"Average Inference Time per Sample: {inf_time:.3f} ms")
+    print(f"Average Preprocessing Time per Sample: {proc_time:.3f} ms")   
+    
+    if config.save_metrics:
+        save_metrics_to_csv(output_dir_metrics, metrics_file_name, prec, rec, f1, acc, auc, optimal_threshold, rec_error_noise_avg, rec_error_bearing_avg, rec_error_noise_std, rec_error_bearing_std, inf_time, proc_time)
 
     # Count the number of noise samples and bearings samples in the test set
     unique, counts = np.unique(combined_test_labels, return_counts=True)
@@ -414,7 +499,6 @@ def main():
     print(f"Number of bearing samples (1) in the test set: {label_counts.get(1, 0)}")
 
     cm = confusion_matrix(combined_test_labels, predicted_labels)
-    
 
     # Plot confusion matrix
     plt.figure(figsize=(8, 6))
@@ -426,13 +510,18 @@ def main():
     plt.title('Confusion Matrix')
     plt.show()
     
-    # Reduce dimensions and plot
-    X_reduced = reduce_dimensions(combined_test_data, method='t-SNE')
-    plot_reduced_data(X_reduced, combined_test_labels)
-    plot_reduced_data(X_reduced, combined_test_labels, predicted_labels)
-        
-    # Thresholds vs metrics
+    # Final test with left over bearing samples
+    print("Final Evaluation:")
+    only_bearings_eval_predictions = autoencoder.predict(only_bearings_eval)
+    only_bearings_eval_errors = np.mean(np.square(only_bearings_eval - only_bearings_eval_predictions), axis=1)
+    detected_labels = (only_bearings_eval_errors > optimal_threshold).astype(int)
+    detected_anomalies = np.count_nonzero(detected_labels)
+    detected_anomalies_per = detected_anomalies / len(only_bearings_eval)
+    print(f"Detected Anomalies: {detected_anomalies}")
+    print(f"Detected Anomalies Percentage: {detected_anomalies_per}")
     
+    
+    # Thresholds vs metrics
     thresholds = np.linspace(min(combined_errors), max(combined_errors), 100)
     f1_scores_test = []
     precisions_test = []
@@ -449,8 +538,6 @@ def main():
     
     # Plot metrics vs threshold
     plot_metrics_vs_threshold(thresholds, f1_scores_test, accuracy_test, precisions_test, recalls_test, roc_aucs_test, optimal_threshold)
-
-    #remove_unused_trials(tuner_dir, project_name, best_trial)
-    
+        
 if __name__ == "__main__":
     main()

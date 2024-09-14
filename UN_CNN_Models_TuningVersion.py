@@ -30,6 +30,8 @@ CNN Simple gave the best results so far, even though they are not good enough co
 
 '''
 
+# Time based sequencial models
+
 class RNN_DEEP_Tuning(HyperModel):
     def __init__(self, input_shape):
         self.input_shape = input_shape
@@ -524,6 +526,8 @@ def vae_model_builder_Tuning(hp, input_shape):
     model.compile(optimizer=opt)
     return model
 
+# Straight features based models
+
 
 class VDAE_Tuning(Model):
     def __init__(self, encoder, decoder, **kwargs):
@@ -678,7 +682,6 @@ def build_vdae(hp, input_shape, latent_dim):
     decoder = build_dense_decoder(hp, input_shape, latent_dim)
     return VDAE_Tuning(encoder, decoder)
 
-# Example of how to use Keras Tuner for hypertuning
 def vdae_model_builder_Tuning(hp, input_shape):
     input_shape = input_shape  # Replace with your actual input shape
     latent_dim = hp.Int('latent_dim', min_value=2, max_value=64, step=2)
@@ -694,3 +697,57 @@ def vdae_model_builder_Tuning(hp, input_shape):
     
     model.compile(optimizer=opt)
     return model
+
+
+class DENSE_TUNING(HyperModel):
+    def __init__(self, input_dim):
+        self.input_dim = input_dim
+
+    def build(self, hp):
+        if not isinstance(hp, HyperParameters):
+            raise ValueError("Expected 'hp' to be an instance of 'HyperParameters'.")
+
+        noise_factor = hp.Float('noise_factor', min_value=0.1, max_value=0.5, step=0.05)
+        units_1 = hp.Int('units_1', min_value=128, max_value=512, step=32)
+        dropout_1 = hp.Float('dropout_1', min_value=0.2, max_value=0.5, step=0.05)
+        units_2 = hp.Int('units_2', min_value=64, max_value=256, step=32)
+        dropout_2 = hp.Float('dropout_2', min_value=0.2, max_value=0.5, step=0.05)
+        units_3 = hp.Int('units_3', min_value=32, max_value=128, step=32)
+        bottleneck_units = hp.Int('bottleneck_units', min_value=8, max_value=64, step=8)
+        dropout_3 = hp.Float('dropout_3', min_value=0.2, max_value=0.5, step=0.05)
+        dropout_4 = hp.Float('dropout_4', min_value=0.2, max_value=0.5, step=0.05)
+        learning_rate = hp.Float('learning_rate', min_value=1e-5, max_value=1e-2, sampling='log')
+        
+        l1_l2_reg = regularizers.L1L2(l1=hp.Float('l1', min_value=1e-5, max_value=1e-2, sampling='log'),
+                          l2=hp.Float('l2', min_value=1e-5, max_value=1e-2, sampling='log'))
+
+        input_layer = Input(shape=(self.input_dim,))
+        #noisy_inputs = Lambda(lambda x: x + noise_factor * tf.random.normal(tf.shape(x)))(input_layer)
+        noisy_inputs = GaussianNoise(noise_factor)(input_layer)
+        
+        # Encoder
+        encoded = Dense(units_1, activation='relu', kernel_regularizer=l1_l2_reg)(noisy_inputs)
+        encoded = BatchNormalization()(encoded)
+        encoded = Dropout(dropout_1)(encoded)
+        encoded = Dense(units_2, activation='relu', kernel_regularizer=l1_l2_reg)(encoded)
+        encoded = BatchNormalization()(encoded)
+        encoded = Dropout(dropout_2)(encoded)
+        encoded = Dense(units_3, activation='relu', kernel_regularizer=l1_l2_reg)(encoded)
+        
+        # Bottleneck
+        bottleneck = Dense(bottleneck_units, activation='relu', kernel_regularizer=l1_l2_reg)(encoded)
+        
+        # Decoder
+        decoded = Dense(units_3, activation='relu', kernel_regularizer=l1_l2_reg)(bottleneck)
+        decoded = BatchNormalization()(decoded)
+        decoded = Dropout(dropout_3)(decoded)
+        decoded = Dense(units_2, activation='relu', kernel_regularizer=l1_l2_reg)(decoded)
+        decoded = BatchNormalization()(decoded)
+        decoded = Dropout(dropout_4)(decoded)
+        decoded = Dense(units_1, activation='relu', kernel_regularizer=l1_l2_reg)(decoded)
+        decoded = Dense(self.input_dim, activation='sigmoid')(decoded)
+        
+        autoencoder = Model(input_layer, decoded)
+        autoencoder.compile(optimizer=Adam(learning_rate=learning_rate),
+                            loss='mse')        
+        return autoencoder

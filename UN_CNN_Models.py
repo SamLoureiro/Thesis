@@ -2,7 +2,7 @@ import tensorflow as tf
 
 from keras.layers import (Input, Dense, BatchNormalization, Dropout, LSTM, 
                           RepeatVector, TimeDistributed, Bidirectional, Input, Conv1D, MaxPooling1D, UpSampling1D, Cropping1D, ZeroPadding1D, Add, GlobalMaxPooling1D, 
-                          Flatten, Reshape, ConvLSTM1D, MultiHeadAttention, LayerNormalization, Lambda, GaussianNoise, Layer, Activation, Conv1DTranspose)
+                          Flatten, Reshape, ConvLSTM1D, MultiHeadAttention, LayerNormalization, Lambda, GaussianNoise, Layer, Activation, Conv1DTranspose, LeakyReLU)
 from keras_tuner import HyperModel
 from tensorflow.keras import regularizers
 from keras.models import Model, Sequential
@@ -29,6 +29,8 @@ Models to test in the main file
 CNN Simple gave the best results so far, even though they are not good enough compared to the Dense Model with the pre-processing from Supervised Learning
 
 '''
+
+# Time based models
 
 class RNN_DEEP:
     def __init__(self, input_shape):
@@ -528,6 +530,10 @@ def vae_model_builder(input_shape, latent_dim=16):
     return model
 
 
+
+# Straight features based models
+
+
 class VDAE(Model):
     def __init__(self, encoder, decoder, **kwargs):
         super().__init__(**kwargs)
@@ -609,30 +615,40 @@ class VDAE(Model):
             "reconstruction_loss": self.val_reconstruction_loss_tracker.result(),
             "kl_loss": self.val_kl_loss_tracker.result(),
         }
+        
+    # Adding the get_config method for serialization
+    def get_config(self):
+        config = super(VDAE, self).get_config()
+        config.update({
+            'encoder': self.encoder.get_config(),
+            'decoder': self.decoder.get_config(),
+        })
+        return config
+
+    # Adding the from_config method for deserialization
+    @classmethod
+    def from_config(cls, config):
+        encoder_config = config.pop('encoder')
+        decoder_config = config.pop('decoder')
+        encoder = Model.from_config(encoder_config)
+        decoder = Model.from_config(decoder_config)
+        return cls(encoder, decoder, **config)
 
 def build_dense_encoder(input_shape, latent_dim):
-    inputs = Input(shape=(input_shape,))
+    inputs = Input(shape=(input_shape,))    
     
-    x = Dense(
-        256,  # Default number of units
-        act=regularizers.L1L2(l1=1e-4, l2=1e-4)  # Default regularization
-    )(inputs)
+    x = Dense(64, activation='relu',kernel_regularizer=regularizers.L1L2(l1=1e-4, l2=1e-4))(inputs)
     x = BatchNormalization()(x)
-    x = Dropout(rate=0.3)(x)  # Default dropout rate
+    x = Dropout(rate=0.2)(x) 
     
-    x = Dense(
-        128,  # Default number of units
-        act=regularizers.L1L2(l1=1e-4, l2=1e-4)  # Default regularization
-    )(x)
+    x = Dense(128, activation='relu',kernel_regularizer=regularizers.L1L2(l1=1e-4, l2=1e-4))(inputs)
     x = BatchNormalization()(x)
-    x = Dropout(rate=0.3)(x)  # Default dropout rate
+    x = Dropout(rate=0.2)(x) 
     
-    x = Dense(
-    64,  # Default number of units
-        act=regularizers.L1L2(l1=1e-4, l2=1e-4)  # Default regularization
-    )(x)
+    x = Dense(256, activation='relu',kernel_regularizer=regularizers.L1L2(l1=1e-4, l2=1e-4))(inputs)
+    x = LeakyReLU(negative_slope=0.1)(x)
     x = BatchNormalization()(x)
-    x = Dropout(rate=0.3)(x)  # Default dropout rate
+    x = Dropout(rate=0.2)(x) 
     
     z_mean = Dense(latent_dim, name="z_mean")(x)
     z_log_var = Dense(latent_dim, name="z_log_var")(x)
@@ -642,24 +658,18 @@ def build_dense_encoder(input_shape, latent_dim):
 def build_dense_decoder(input_shape, latent_dim):
     latent_inputs = Input(shape=(latent_dim,))
     
-    x = Dense(
-    64,  # Default number of units
-        act=regularizers.L1L2(l1=1e-4, l2=1e-4)  # Default regularization
-    )(x)
-    
-    x = Dense(
-        128,  # Default number of units
-        act=regularizers.L1L2(l1=1e-4, l2=1e-4)  # Default regularization
-    )(latent_inputs)
+    x = Dense(256, activation='relu')(latent_inputs)
+    x = LeakyReLU(negative_slope=0.1)(x)
     x = BatchNormalization()(x)
-    x = Dropout(rate=0.3)(x)  # Default dropout rate
+    x = Dropout(rate=0.2)(x) 
     
-    x = Dense(
-        256,  # Default number of units
-        act=regularizers.L1L2(l1=1e-4, l2=1e-4)  # Default regularization
-    )(x)
+    x = Dense(128, activation='relu')(x)
     x = BatchNormalization()(x)
-    x = Dropout(rate=0.3)(x)  # Default dropout rate
+    x = Dropout(rate=0.2)(x) 
+    
+    x = Dense(64, activation='relu')(x)
+    x = BatchNormalization()(x)
+    x = Dropout(rate=0.2)(x) 
     
     outputs = Dense(input_shape, activation='sigmoid')(x)
     return Model(latent_inputs, outputs, name="decoder")
@@ -681,3 +691,52 @@ def vdae_model_builder(input_shape, latent_dim):
     model = build_vdae(input_shape, latent_dim)
     model.compile(optimizer='adam')
     return model
+
+class DENSE:
+    def __init__(self, input_dim):
+        self.input_dim = input_dim
+
+    def build(self):
+
+        noise_factor = 0.1
+        units_1 = 256
+        dropout_1 = 0.2
+        units_2 = 128
+        dropout_2 = 0.2
+        units_3 = 64
+        bottleneck_units = 16
+        dropout_3 = 0.2
+        dropout_4 = 0.2
+
+        input_layer = Input(shape=(self.input_dim,))
+        noisy_inputs = Lambda(lambda x: x + noise_factor * tf.random.normal(tf.shape(x)))(input_layer)
+        #noisy_inputs = GaussianNoise(noise_factor)(input_layer)
+
+        
+        # Encoder
+        encoded = Dense(units_1, activation='relu', kernel_regularizer=regularizers.L1L2(l1=1e-4, l2=1e-4))(noisy_inputs)
+        #encoded = LeakyReLU(negative_slope=0.1)(encoded)
+        encoded = BatchNormalization()(encoded)
+        encoded = Dropout(dropout_1)(encoded)
+        encoded = Dense(units_2, activation='relu', kernel_regularizer=regularizers.L1L2(l1=1e-4, l2=1e-4))(encoded)
+        encoded = BatchNormalization()(encoded)
+        encoded = Dropout(dropout_2)(encoded)
+        encoded = Dense(units_3, activation='relu', kernel_regularizer=regularizers.L1L2(l1=1e-4, l2=1e-4))(encoded)
+        
+        # Bottleneck
+        bottleneck = Dense(bottleneck_units, activation='relu')(encoded)
+
+        # Decoder
+        decoded = Dense(units_3, activation='relu')(bottleneck)
+        decoded = BatchNormalization()(decoded)
+        decoded = Dropout(dropout_3)(decoded)
+        decoded = Dense(units_2, activation='relu')(decoded)
+        decoded = BatchNormalization()(decoded)
+        decoded = Dropout(dropout_4)(decoded)
+        decoded = Dense(units_1, activation='relu')(decoded)
+        decoded = Dense(self.input_dim, activation='sigmoid')(decoded)
+        #encoded = LeakyReLU(negative_slope=0.1)(encoded)
+        
+        autoencoder = Model(input_layer, decoded)
+        autoencoder.compile(optimizer='adam', loss='mse')        
+        return autoencoder
