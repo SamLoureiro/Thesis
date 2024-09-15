@@ -378,5 +378,6 @@ elif(config.model['RF']):
 ### perform evaluation and prediction
 perform_evaluation_and_prediction(model, X_test, metrics_folder, model_string)
 model.variable_importances()
+model.evaluate(X_test)
 # Evaluation caracteristics can be accessed by the code in the comment below
 #evaluation.characteristics[0]. ...
