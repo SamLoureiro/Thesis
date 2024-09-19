@@ -151,152 +151,223 @@ def remove_unused_trials(keras_tuner_dir, project_name, best_trial):
 
 
 def main():
-
     # Main execution
     directories = define_directories()
-    combined_features_normalized, labels, pre_proc_time, pre_proc_string = load_and_extract_features(directories)    
+    combined_features, labels_np, pre_proc_time, pre_proc_string = load_and_extract_features(directories)
 
-    # Normalize features
+    # Normalize features (standardize each feature)
     scaler = StandardScaler()
-    features = scaler.fit_transform(combined_features_normalized)
-
-    # Change the model name to the desired model
-    model = 'DAE' 
-
-    # Noise samples (considered as regular data)
-    noise_samples = features[np.array(labels) == 0]    
-    noise_labels = np.array([0] * noise_samples.shape[0])  # All labels in training set are 0
- 
-    # Bearing samples (considered as anomalies)
-    bearings_samples = features[np.array(labels) != 0]
-    bearings_labels = np.array(labels)[np.array(labels) != 0] 
+    features = pd.DataFrame(scaler.fit_transform(combined_features), columns=combined_features.columns)
     
-    # Split bearing samples into good and damaged bearings (For later use)
-    good_bearing_samples = features[np.array(labels) == 1]
-    good_bearing_labels = np.array([1] * good_bearing_samples.shape[0])
+    #print(features.head(10))
+    #print(features.tail(10))
     
-    damaged_bearing_samples = features[np.array(labels) == 2]
-    damaged_bearing_labels = np.array([2] * damaged_bearing_samples.shape[0])   
+    # Convert labels to a DataFrame
+    labels = pd.DataFrame(labels_np, columns=["label"])
+    
+    print('Labels:')
+    print(labels.index[labels['label'] == 0])
+    
+    print(labels.index[labels['label'] != 0])
+    
+    print(labels.index[labels['label'] == 1])
+    
+    print(labels.index[labels['label'] == 2])
+    
+    #print(labels.head(10))
+    #print(labels.tail(10))
+    
+    # Until here, the data is correct and the code is working fine
+
+    indices = labels.index[labels['label'] == 0]
+    
+    # Separate noise and bearing samples using pandas DataFrame filtering
+    noise_samples = features.loc[indices]
+    noise_labels = labels.loc[indices]
+
+    bearings_samples = features.loc[labels.index[labels['label'] != 0]]
+    bearings_labels = labels.loc[labels.index[labels['label'] != 0]]
+
+    # Further split bearing samples into good and damaged bearings
+    good_bearing_samples = features.loc[labels.index[labels['label'] == 1]]
+    good_bearing_labels = features.loc[labels.index[labels['label'] == 1]]
+
+    damaged_bearing_samples = features.loc[labels.index[labels['label'] == 2]]
+    damaged_bearing_labels = features.loc[labels.index[labels['label'] == 2]]
     
     # Split noise data into training and validation sets
     X_train, X_val_complete, y_train, y_val_complete = train_test_split(noise_samples, noise_labels, test_size=0.2, random_state=42)
-    
-    # Split noise data into training and validation sets
+
+    # Split the remaining validation data into validation and test sets
     X_val_complete, X_test_complete, y_val_complete, y_test_complete = train_test_split(X_val_complete, y_val_complete, test_size=0.35, random_state=42)
+
+    # Split bearing samples into validation and test sets
+    bearings_val_complete, bearings_test_complete, bearings_val_labels_complete, bearings_test_labels_complete = train_test_split(bearings_samples, bearings_labels, test_size=0.5, random_state=42)    
+
+    print(bearings_val_labels_complete.head(10))
     
-    # Further split labeled anomalies into validation and test sets
-    bearings_val_complete, bearings_test_complete, bearings_val_labels_complete, bearings_test_labels_complete = train_test_split(bearings_samples, bearings_labels, test_size=0.5, random_state=42)
-    
+    # Print the number of samples
     print("\nNumber of Noise Training Samples:", len(X_train))
     print("Number of Noise Validation Samples:", len(X_val_complete))
-    
     print("Number of Bearing Validation Samples:", len(bearings_test_complete))
-    print("Number of Bearing Test Samples:", len(bearings_val_complete))   
-    
-    
+    print("Number of Bearing Test Samples:", len(bearings_val_complete))
+
+    # Adjust validation set size to ensure both sets are balanced
     val_size = min(len(X_val_complete), len(bearings_val_complete))
-    
-    X_val = X_val_complete[:val_size]
-    y_val = y_val_complete[:val_size]
-    
-    # In an ideal situation, the test set should be independent of the training and validation sets. 
-    # However, due to the lack of noise data, the noise test set is created with random samples from the the dataset.
-    #test_size = min(len(bearings_test_labels_complete), len(noise_labels))
-    
+
+    X_val = X_val_complete.iloc[:val_size]
+    y_val = y_val_complete.iloc[:val_size]    
+
+    # Balance the test set sizes
     test_size = min(len(bearings_test_labels_complete), len(X_test_complete))
+
+    X_test = X_test_complete.iloc[:test_size]
+    y_test = y_test_complete.iloc[:test_size]
+
+    bearings_val = bearings_val_complete.iloc[:val_size]
+    bearings_test = bearings_test_complete.iloc[:test_size]
+    bearings_val_labels = bearings_val_labels_complete.iloc[:val_size]
+    bearings_test_labels = bearings_test_labels_complete.iloc[:test_size]
     
-    X_test = X_test_complete[:test_size]
-    y_test = y_test_complete[:test_size]
-    
-    # Force the test set and val set to be balanced to avoid class imbalance and bias in the evaluation and threshold parameterization
-    bearings_val = bearings_val_complete[:val_size]
-    bearings_test = bearings_test_complete[:test_size]
-    bearings_val_labels = bearings_val_labels_complete[:val_size]
-    bearings_test_labels = bearings_test_labels_complete[:test_size]
-    
-    # The remaining bearing samples are used for the final evaluation
-    # The remaining bearing samples are used for the final evaluation
-    only_bearings_eval = np.concatenate((bearings_val_complete[val_size:], bearings_test_complete[test_size:]))
-    only_bearings_eval_labels = np.concatenate((bearings_val_labels[val_size:], bearings_test_labels[test_size:]))
-    
-    
-    bearings_val_labels_ae = np.ones(len(bearings_val_labels))
-    bearings_test_labels_ae = np.ones(len(bearings_test_labels)) 
-    bearings_eval_labels_ae = np.ones(len(only_bearings_eval_labels))
+    # Remaining bearing samples for final evaluation
+    only_bearings_eval = pd.concat([bearings_val_complete.iloc[val_size:], bearings_test_complete.iloc[test_size:]])
+    only_bearings_eval_labels = pd.concat([bearings_val_labels_complete.iloc[val_size:], bearings_test_labels_complete.iloc[test_size:]])
+
+    # Create DataFrames with a 'label' column for each set of labels
+    bearings_val_labels_ae = pd.DataFrame({'label': [1] * len(bearings_val_labels)})
+    bearings_test_labels_ae = pd.DataFrame({'label': [1] * len(bearings_test_labels)})
+    bearings_eval_labels_ae = pd.DataFrame({'label': [1] * len(only_bearings_eval_labels)})
+
 
     # The data shape is (number of samples x number of features)
-
     print(f"Preprocessing Time: {pre_proc_time:.3f} seconds")
 
     input_shape = X_train.shape[1]
-    
     print(f"Input shape: {input_shape}")
-    
+
     # Define directories
-    current_dir = os.getcwd()    
-    
-    ##############################################################################################################
-    
+    current_dir = os.getcwd()
+
     # Autoencoder Model -> Distinguish between noise and bearing samples
-    
-    model_string = 'DAE'   
+    model_string = 'DAE'
     model_name = f"{model_string}_{pre_proc_string}.keras"
-    model_save_path = os.path.join(current_dir, 'AE_Models', 'NEW_AMR', 'Bayesian', model_name) 
-    
+    model_save_path = os.path.join(current_dir, 'AE_Models', 'NEW_AMR', 'Bayesian', model_name)
+
     autoencoder = load_model(model_save_path, custom_objects={'DENSE_TUNING': DENSE_TUNING})
-        
+
     # Full test set
-    combined_X_test = np.concatenate([bearings_test, X_test])
-    
-    # Predict the reconstruction error for the test bearing samples
+    combined_X_test = pd.concat([bearings_test, X_test])
+
+    # Predict reconstruction error for the test bearing samples
     bearing_test_predictions = autoencoder.predict(bearings_test)
-    bearing_test_errors = np.mean(np.square(bearings_test - bearing_test_predictions), axis=1)
-    
-    # Predict the reconstruction error for the test noise samples
+    bearing_test_errors = np.mean(np.square(bearings_test.values - bearing_test_predictions), axis=1)
+
+    # Predict reconstruction error for the test noise samples
     noise_test_predictions = autoencoder.predict(X_test)
-    noise_test_errors = np.mean(np.square(X_test - noise_test_predictions), axis=1)
+    noise_test_errors = np.mean(np.square(X_test.values - noise_test_predictions), axis=1)
 
     # Combine the noise and bearing errors
     combined_test_errors = np.concatenate([bearing_test_errors, noise_test_errors])
     combined_test_labels_ae = np.concatenate([bearings_test_labels_ae, y_test])
     combined_test_labels = np.concatenate([bearings_test_labels, y_test])
-    
+
     optimal_threshold = 0.444
 
     # Determine which samples are anomalies based on the optimal threshold
     test_anomalies = combined_test_errors > optimal_threshold
-    
+
     # Calculate and print the final detection metrics
-    predicted_labels = test_anomalies.astype(int)    # e.g. [0, 0, 1, 1, 0, 1, 0, 0, 1, 1]
+    predicted_labels = test_anomalies.astype(int)  # e.g., [0, 0, 1, 1, 0, 1, 0, 0, 1, 1]
     
+    # Count the number of noise samples and bearings samples in the test set
+    unique, counts = np.unique(combined_test_labels, return_counts=True)
+    label_counts = dict(zip(unique, counts))
+
+    print(f"Number of noise samples (0) in the test set: {label_counts.get(0, 0)}")
+    print(f"Number of bearing samples (1) in the test set: {label_counts.get(1, 0)}")
+
+    cm = confusion_matrix(combined_test_labels_ae, predicted_labels)
+    
+    # Plot confusion matrix
+    plt.figure(figsize=(8, 6))
+    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', cbar=False,
+                xticklabels=['Noise', 'Bearing'],
+                yticklabels=['Noise', 'Bearing'])
+    plt.xlabel('Predicted Label')
+    plt.ylabel('True Label')
+    plt.title('Confusion Matrix (Noise vs Bearing)')
+    plt.show()
+
     
     
     ##############################################################################################################
     
     # Yggdrasil GBDT Model -> Distinguish between good and damaged bearings
     
-    model_string = 'GBDT'
-    gbdt_save_path = os.path.join(current_dir, 'DTs_Models', 'GBDT', 'gbdt_stft')
+    model_string = 'RF'
+    gbdt_save_path = os.path.join(current_dir, 'DTs_Models', 'RF', 'rf_stft')
     
     ygg = ydf.load_model(gbdt_save_path)
     
-    pred_bearing_indices = np.where(predicted_labels == 1) 
+    # Convert the result of np.where() to a flat array and use iloc for positional indexing
+    pred_bearing_indices = np.where(predicted_labels == 1)[0]  # Use [0] to get the array of indices
     
-    X_test_bearing = combined_X_test[pred_bearing_indices]
+    X_test_bearing = combined_X_test.iloc[pred_bearing_indices]
     
-    X_test_bearing_labels = combined_test_labels[pred_bearing_indices]
+    X_test_bearing_labels = combined_test_labels[pred_bearing_indices]    
     
     X_test_bearing = pd.DataFrame(X_test_bearing)
     
-    pred_bearing_faults = ygg.predict(X_test_bearing)
+    y_pred_probs = ygg.predict(X_test_bearing)
     
-    pred_bearing_faults_3_labels = pred_bearing_faults + 1   # Good Bearing (1), Damaged Bearing (2)
+    # Convert predicted probabilities to binary class labels
+    pred_bearing_faults = (y_pred_probs > 0.5).astype(int).flatten()    
     
-    print("Predicted Bearing Faults:", pred_bearing_faults_3_labels)
-    print("Predicted Bearing Faults Length:", len(pred_bearing_faults_3_labels))
+    pred_bearing_faults = pred_bearing_faults + 1   # Good Bearing (1), Damaged Bearing (2)
     
-    print("True Bearing Faults:", X_test_bearing_labels)
-    print("True Bearing Faults Length:", len(X_test_bearing_labels))
+    # Create confusion matrix with 3 rows (true labels) and 2 columns (predicted labels)
+    cm = confusion_matrix(X_test_bearing_labels, pred_bearing_faults, labels=[0, 1, 2])[:, 1:]
 
+    # Plot confusion matrix
+    plt.figure(figsize=(8, 6))
+    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', cbar=False,
+                xticklabels=['Healthy Bearing', 'Damaged Bearing'],  # 2 predicted labels
+                yticklabels=['Noise', 'Healthy Bearing', 'Damaged Bearing'])  # 3 true labels
+    plt.xlabel('Predicted Label')
+    plt.ylabel('True Label')
+    plt.title('Confusion Matrix (Noise vs Healthy Bearing vs Damaged Bearing)')
+    plt.show()
+    
+    # Combine the true labels and predicted probabilities into a DataFrame
+    probs_df = pd.DataFrame({
+        'True Label': X_test_bearing_labels.flatten(),
+        'Predicted Probability': y_pred_probs.flatten()
+    })
+
+    # Map the true labels to their corresponding names for better visualization
+    probs_df['Label Name'] = probs_df['True Label'].map({0: 'Noise', 1: 'Healthy Bearing', 2: 'Damaged Bearing'})
+
+    # Plot the probability distribution for each label
+    plt.figure(figsize=(12, 6))
+    sns.histplot(data=probs_df, x='Predicted Probability', hue='Label Name', kde=True, bins=30, palette='Set2')
+    plt.xlabel('Predicted Probability')
+    plt.ylabel('Density')
+    plt.title('Probability Distribution for Each Label')
+    plt.axvline(0.5, color='red', linestyle='--', label='Decision Threshold (0.5)')
+    plt.legend(title='True Label')
+    # Add a caption explaining the colors
+    caption_text = (
+        "Colors represent true labels:\n"
+        "- Green: Noise\n"
+        "- Blue: Healthy Bearing\n"
+        "- Orange: Damaged Bearing"
+    )
+    plt.text(
+        -0.4, 0.8, caption_text, transform=plt.gca().transAxes, fontsize=10,
+        verticalalignment='top', bbox=dict(boxstyle="round,pad=0.3", edgecolor='black', facecolor='white')
+    )
+
+    plt.show()
+    
 if __name__ == "__main__":
     main()

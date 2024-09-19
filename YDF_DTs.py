@@ -22,7 +22,7 @@ def sort_key(file_path):
     numeric_part = ''.join(filter(str.isdigit, file_name))
     return int(numeric_part) if numeric_part else 0
 
-def perform_evaluation_and_prediction(model, X_test, Folder, model_string):
+def perform_evaluation_and_prediction(model, X_test, Folder, model_string, all_data):
     
     print("\nModel Description:")
     model.describe()
@@ -144,6 +144,32 @@ def perform_evaluation_and_prediction(model, X_test, Folder, model_string):
 
         print("\nMetrics saved to CSV:")
         print(metrics_df)
+        
+    # Prediction with all data    
+    y_pred_probs = model.predict(all_data)
+    
+    # Convert predicted probabilities to binary class labels
+    y_pred = (y_pred_probs > 0.5).astype(int).flatten()
+    
+    # Convert labels to numpy array 
+    y = all_data['label'].values
+    
+    # Classification report
+    print("Classification Report with all the data (train and test):")
+    target_names = ['HEALTHY', 'DAMAGED']
+    print(classification_report(y, y_pred, target_names=['DAMAGED', 'HEALTHY']))
+
+    # Confusion matrix
+    conf_matrix = confusion_matrix(y, y_pred, labels=[0, 1])
+
+    # Plot confusion matrix
+    plt.figure(figsize=(8, 6))
+    sns.heatmap(conf_matrix, annot=True, fmt='d', cmap='Blues', xticklabels=target_names, yticklabels=target_names)
+    plt.xlabel('Predicted Label')
+    plt.ylabel('True Label')
+    plt.title('Confusion Matrix for All Data')
+    plt.tight_layout()
+    plt.show()
 
     return evaluation
 
@@ -288,14 +314,12 @@ combined_features_df = pd.DataFrame(combined_features)
 scaler = StandardScaler()
 combined_features_normalized = scaler.fit_transform(combined_features_df)
 
-print(f"Combined Features Shape: {combined_features_normalized.shape}")
-
 # Convert labels to numpy array
 y = np.array(labels)
 
 # Convert features to a DataFrame
-#features_df = pd.DataFrame(combined_features_normalized, columns=0)
-features_df = combined_features_df
+features_df = pd.DataFrame(combined_features_normalized, columns=combined_features_df.columns)
+#features_df = combined_features_df
 
 # Convert labels to a DataFrame
 labels_df = pd.DataFrame(y, columns=["label"])
@@ -310,7 +334,7 @@ data = pd.concat([features_df_rs, labels_df_rs], axis=1)
 print(f"Data Shape: {data.shape}")
 
 # Data Splitting
-X_train, X_test = train_test_split(data, test_size=0.2, random_state=45)
+X_train, X_test = train_test_split(data, test_size=0.2, random_state=42)
 
 
 if(config.model['GBDT']):
@@ -376,8 +400,8 @@ elif(config.model['RF']):
             
         
 ### perform evaluation and prediction
-perform_evaluation_and_prediction(model, X_test, metrics_folder, model_string)
-model.variable_importances()
-model.evaluate(X_test)
+perform_evaluation_and_prediction(model, X_test, metrics_folder, model_string, data)
+#model.variable_importances()
+#model.evaluate(X_test)
 # Evaluation caracteristics can be accessed by the code in the comment below
 #evaluation.characteristics[0]. ...
