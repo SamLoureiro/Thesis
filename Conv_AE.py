@@ -16,6 +16,7 @@ import librosa
 import matplotlib.pyplot as plt
 import seaborn as sns
 import shutil
+import json 
 from scipy import interpolate
 from scipy.signal.windows import hann
 from sklearn.preprocessing import StandardScaler
@@ -25,9 +26,11 @@ from sklearn.model_selection import train_test_split
 from sklearn.utils import shuffle
 import tensorflow as tf
 from keras.callbacks import EarlyStopping, TensorBoard
+from keras.models import load_model
 from keras_tuner import HyperModel, HyperParameters, BayesianOptimization, Hyperband, Objective
-from UN_CNN_Models_TuningVersion import RNN_DEEP, RNN_SIMPLE, CNN_SIMPLE, CNN_DEEP, Attention_AE, SEQ_VAE
-from AE_Aux_Func import plot_metrics_vs_threshold, plot_precision_recall_curve
+from UN_CNN_Models_TuningVersion import RNN_DEEP_Tuning, RNN_SIMPLE_Tuning, CNN_SIMPLE_Tuning, CNN_DEEP_Tuning, Attention_AE_Tuning, VAE_Tuning, vae_model_builder_Tuning
+from UN_CNN_Models import RNN_DEEP, RNN_SIMPLE, CNN_SIMPLE, CNN_DEEP, Attention_AE, VAE, vae_model_builder
+from AE_Aux_Func import plot_metrics_vs_threshold, plot_precision_recall_curve, save_metrics_to_csv, find_optimal_threshold_f1
 
 
 
@@ -38,12 +41,18 @@ file_paths = {
     'good_bearing_acel_s': os.path.join(current_dir, 'Dataset_Bearings', 'AMR_STOPPED', 'GOOD', 'ACEL'),
     'good_bearing_acel_m': os.path.join(current_dir, 'Dataset_Bearings', 'AMR_MOVEMENT', 'GOOD', 'ACEL'),
     'good_bearing_audio_s': os.path.join(current_dir, 'Dataset_Bearings', 'AMR_STOPPED', 'GOOD', 'AUDIO'),
+    'good_bearing_audio_new_amr': os.path.join(current_dir, 'Dataset_Bearings', 'NEW_AMR', 'GOOD', 'AUDIO'),
+    'good_bearing_accel_new_amr': os.path.join(current_dir, 'Dataset_Bearings', 'NEW_AMR', 'GOOD', 'ACCEL'),
     'damaged_bearing_audio_s': os.path.join(current_dir, 'Dataset_Bearings', 'AMR_STOPPED', 'DAMAGED', 'AUDIO'),
     'damaged_bearing_acel_s': os.path.join(current_dir, 'Dataset_Bearings', 'AMR_STOPPED', 'DAMAGED', 'ACEL'),
     'damaged_bearing_audio_m': os.path.join(current_dir, 'Dataset_Bearings', 'AMR_MOVEMENT', 'DAMAGED', 'AUDIO'),
     'damaged_bearing_acel_m': os.path.join(current_dir, 'Dataset_Bearings', 'AMR_MOVEMENT', 'DAMAGED', 'ACEL'),
+    'damaged_bearing_audio_new_amr': os.path.join(current_dir, 'Dataset_Bearings', 'NEW_AMR', 'DAMAGED', 'AUDIO'),
+    'damaged_bearing_accel_new_amr': os.path.join(current_dir, 'Dataset_Bearings', 'NEW_AMR', 'DAMAGED', 'ACCEL'),
     'smooth_floor_audio': os.path.join(current_dir, 'Dataset_Piso', 'LISO', 'SAMPLES_1s', 'AUDIO'),
     'smooth_floor_acel': os.path.join(current_dir, 'Dataset_Piso', 'LISO', 'SAMPLES_1s', 'ACCEL'),
+    'smooth_floor_audio_new_amr': os.path.join(current_dir, 'Dataset_Piso', 'NEW_AMR', 'LISO', 'SAMPLES_1s', 'AUDIO'),
+    'smooth_floor_accel_new_amr': os.path.join(current_dir, 'Dataset_Piso', 'NEW_AMR', 'LISO', 'SAMPLES_1s', 'ACCEL'),
     'tiled_floor_audio': os.path.join(current_dir, 'Dataset_Piso', 'TIJOLEIRA', 'SAMPLES_1s', 'AUDIO'),
     'tiled_floor_acel': os.path.join(current_dir, 'Dataset_Piso', 'TIJOLEIRA', 'SAMPLES_1s', 'ACCEL'),
     'noise_profile_file': os.path.join(current_dir, 'Dataset_Piso', 'Noise.WAV')
@@ -161,21 +170,27 @@ def preprocess_data(stft=True, mfcc=True, target_frames=50):
     """Preprocess data for training and testing."""
     # Load data
     noise_audio =   (load_files(file_paths['smooth_floor_audio'], '.WAV') +
-                     load_files(file_paths['tiled_floor_audio'], '.WAV'))
+                     load_files(file_paths['tiled_floor_audio'], '.WAV') +
+                     load_files(file_paths['smooth_floor_audio_new_amr'], '.WAV'))
     noise_accel =   (load_files(file_paths['smooth_floor_acel'], '.csv') +
-                     load_files(file_paths['tiled_floor_acel'], '.csv'))
+                     load_files(file_paths['tiled_floor_acel'], '.csv') +
+                     load_files(file_paths['smooth_floor_accel_new_amr'], '.csv'))
     
     good_bearing_audio = (load_files(file_paths['good_bearing_audio_s'], '.WAV') +
-                          load_files(file_paths['good_bearing_audio_m'], '.WAV'))
+                          load_files(file_paths['good_bearing_audio_m'], '.WAV') +
+                          load_files(file_paths['good_bearing_audio_new_amr'], '.WAV'))
     
     damaged_bearing_audio = (load_files(file_paths['damaged_bearing_audio_s'], '.WAV') + 
-                             load_files(file_paths['damaged_bearing_audio_m'], '.WAV'))
+                             load_files(file_paths['damaged_bearing_audio_m'], '.WAV') +
+                             load_files(file_paths['damaged_bearing_audio_new_amr'], '.WAV'))
     
     good_bearing_accel = (load_files(file_paths['good_bearing_acel_s'], '.csv') +
-                          load_files(file_paths['good_bearing_acel_m'], '.csv'))
+                          load_files(file_paths['good_bearing_acel_m'], '.csv') +
+                          load_files(file_paths['good_bearing_accel_new_amr'], '.csv'))
     
     damaged_bearing_accel = (load_files(file_paths['damaged_bearing_acel_s'], '.csv') +
-                             load_files(file_paths['damaged_bearing_acel_m'], '.csv'))
+                             load_files(file_paths['damaged_bearing_acel_m'], '.csv') +
+                             load_files(file_paths['damaged_bearing_accel_new_amr'], '.csv'))
     
     print("\nNumber of Noise Samples:", len(noise_audio))
     print("Number of Good Bearing Samples:", len(good_bearing_audio))
@@ -323,11 +338,18 @@ def main():
     
     target_frames_shape = 50
     stft = True
-    mfcc = True
+    mfcc = False
     
     # Data preprocessing
+    # Features are already normalized
     features, labels, methods, pre_proc_time = preprocess_data(stft=stft, mfcc=mfcc, target_frames=target_frames_shape)
     
+    # Change the model name to the desired model
+    model_name = "RNN_SIMPLE"
+    save_model = False
+    model_load = False
+    save_metrics = False
+
     # Noise samples (considered as regular data)
     noise_samples = features[np.array(labels) == 0]    
     noise_labels = np.array([0] * noise_samples.shape[0])  # All labels in training set are 0
@@ -344,19 +366,49 @@ def main():
     damaged_bearing_labels = np.array([2] * damaged_bearing_samples.shape[0])   
     
     # Split noise data into training and validation sets
-    X_train, X_val, y_train, y_val = train_test_split(noise_samples, noise_labels, test_size=0.1, random_state=42)
+    X_train, X_val_complete, y_train, y_val_complete = train_test_split(noise_samples, noise_labels, test_size=0.2, random_state=42)
+    
+    # Split noise data into training and validation sets
+    X_val_complete, X_test_complete, y_val_complete, y_test_complete = train_test_split(X_val_complete, y_val_complete, test_size=0.35, random_state=42)
     
     # Further split labeled anomalies into validation and test sets
-    bearings_train, bearings_test, bearings_train_labels, bearings_test_labels = train_test_split(bearings_samples, bearings_labels, test_size=0.5, random_state=42)
+    bearings_val_complete, bearings_test_complete, bearings_val_labels_complete, bearings_test_labels_complete = train_test_split(bearings_samples, bearings_labels, test_size=0.5, random_state=42)
     
-    bearings_train = bearings_train[:95]
-    bearings_test = bearings_test[:95]
-    bearings_train_labels = bearings_train_labels[:95]
-    bearings_test_labels = bearings_test_labels[:95]
+    print("\nNumber of Noise Training Samples:", len(X_train))
+    print("Number of Noise Validation Samples:", len(X_val_complete))
+    
+    print("Number of Bearing Validation Samples:", len(bearings_test_complete))
+    print("Number of Bearing Test Samples:", len(bearings_val_complete))   
     
     
-    bearings_train_labels_ae = np.ones(len(bearings_train_labels))
+    val_size = min(len(X_val_complete), len(bearings_val_complete))
+    
+    X_val = X_val_complete[:val_size]
+    y_val = y_val_complete[:val_size]
+    
+    # In an ideal situation, the test set should be independent of the training and validation sets. 
+    # However, due to the lack of noise data, the noise test set is created with random samples from the the dataset.
+    #test_size = min(len(bearings_test_labels_complete), len(noise_labels))
+    
+    test_size = min(len(bearings_test_labels_complete), len(X_test_complete))
+    
+    X_test = X_test_complete[:test_size]
+    y_test = y_test_complete[:test_size]
+    
+    # Force the test set and val set to be balanced to avoid class imbalance and bias in the evaluation and threshold parameterization
+    bearings_val = bearings_val_complete[:val_size]
+    bearings_test = bearings_test_complete[:test_size]
+    bearings_val_labels = bearings_val_labels_complete[:val_size]
+    bearings_test_labels = bearings_test_labels_complete[:test_size]
+
+    # The remaining bearing samples are used for the final evaluation
+    only_bearings_eval = np.concatenate((bearings_val_complete[val_size:], bearings_test_complete[test_size:]))
+    only_bearings_eval_labels = np.concatenate((bearings_val_labels[val_size:], bearings_test_labels[test_size:]))
+    
+    
+    bearings_val_labels_ae = np.ones(len(bearings_val_labels))
     bearings_test_labels_ae = np.ones(len(bearings_test_labels)) 
+    bearings_eval_labels_ae = np.ones(len(only_bearings_eval_labels))
     
     # X_train and X_val shape: (number of samples, 50, 2143) - where:
 
@@ -372,18 +424,44 @@ def main():
     input_shape = X_train.shape[1:]
     # Epochs and batch size
     epochs = 100
-    batch_size = 32
+    batch_size = 64
 
     # Define directories
+    model_string = model_name + "_" + methods + "_" + str(target_frames_shape) + '_bs_' + str(batch_size)
+    
     current_dir = os.getcwd()
-    tuner_dir = os.path.join(current_dir, 'Bayesian_Tuning', 'SEQ_VAE')
-    project_name = 'AE_TB_' + str(batch_size) + 'bs_' + methods + '_' + str(target_frames_shape)
+    tuner_dir = os.path.join(current_dir, 'Bayesian_Tuning', model_string)
+    project_name = 'AE_TB_' + model_string
+    
+    model_save_path = os.path.join(current_dir, 'AE_Models', 'NEW_AMR', 'Bayesian', model_string + '.keras') 
+    parameters_save_path = os.path.join(current_dir, 'AE_Models', 'NEW_AMR', 'Bayesian', model_string + '_parameters.json')
+    
+    metrics_file_name = model_string + '_results.csv'
+    output_dir_metrics = os.path.join(current_dir, 'AE_Results', 'NEW_AMR')
+    
+    # Early stopping setup
+    early_stopping = EarlyStopping(monitor='val_loss', mode='min', patience=50, restore_best_weights=True, verbose=2)
+    
+    ######################################################################################################################
+    
+    ## For Hypertuning, uncomment the following block and comment the block below it
+    ## For training and testing the model with default parameters, comment the following block
 
 
+    '''
     # Define the BayesianOptimization tuner
-    tuner = Hyperband(
-        hypermodel=SEQ_VAE(input_shape),
-        objective=Objective("loss", direction="min"),
+    tuner = BayesianOptimization(
+        hypermodel=RNN_SIMPLE_Tuning(input_shape),
+        objective='val_loss',
+        max_trials=20,
+        executions_per_trial=2,
+        directory=tuner_dir,
+        project_name=project_name
+    )
+    
+    tuner_hyper = Hyperband(
+        hypermodel=RNN_SIMPLE_Tuning(input_shape),
+        objective=Objective("val_loss", direction="min"),
         #max_trials=10,
         #executions_per_trial=2,
         max_epochs=epochs,
@@ -392,35 +470,69 @@ def main():
         project_name=project_name
     )
 
-    # Early stopping setup
-    early_stopping = EarlyStopping(monitor='val_loss', mode='min', patience=10, restore_best_weights=True, verbose=1)
-
-    # If the tuner directory exists, try to load the best trial, otherwise perform Bayesian optimization and save and load the best trial
     try:
-        # Load the best trial
-        best_trial = tuner.oracle.get_best_trials(1)[0]
+        # Attempt to load the best model        
+        autoencoder = load_model(model_save_path)        
         
-    except IndexError:
+    except (IndexError, ValueError):
+        # Handle the case where no best model is available
+        print("No best model found. Performing search.")
+
         # Perform Bayesian optimization
-        tuner.search(X_train, X_train, epochs=epochs, batch_size=batch_size, validation_split=0.1, callbacks=[early_stopping], verbose=1)    
-        # Load the best trial
-        best_trial = tuner.oracle.get_best_trials(1)[0]
-        pass
+        tuner.search(X_train, X_train, epochs=epochs, batch_size=batch_size, callbacks=[early_stopping], validation_split=0.1, verbose=1)
+        
+        # Try again to get the best model after the search
+        try:
+            autoencoder = tuner.get_best_models(num_models=1)[0]
+            autoencoder.save(model_save_path)
+            
+            best_trial = tuner.oracle.get_best_trials(1)[0]
+            print(f"Best trial: {best_trial.trial_id}")
+            print(f"Best trial value: {best_trial.score}")
 
-    except AttributeError as e:
-        print(f"Error while accessing best trial attributes: {e}")
+            # Best hyperparameters
+            hyperparameters = best_trial.hyperparameters
+            print(f"Best trial hyperparameters: {hyperparameters.values}")
+            
+            # Convert and write JSON object to file
+            with open(parameters_save_path, "w") as outfile: 
+                json.dump(hyperparameters.values, outfile)            
+            
+        except IndexError:
+            print("Search completed, but no best model was found.")
+            exit(1)'''
+            
+    ######################################################################################################################
+    
+    
+    ######################################################################################################################
+    
+    ## For training and testing the model with default parameters, uncomment the following block and comment the block above it
+    ## For hyperparameter tuning, comment the following block
+    
+    if(model_load and os.path.exists(model_save_path)):
+        autoencoder = load_model(model_save_path)
+    
+    autoencoder = RNN_SIMPLE(input_shape).build()
+        
+    history = autoencoder.fit(X_train, X_train, epochs=epochs, batch_size=batch_size, callbacks=[early_stopping], validation_split=0.1, verbose=2)
+    
+    autoencoder.summary()
+    
+    # Plot training & validation loss values
+    plt.plot(history.history['loss'], label='Training Loss')
+    plt.plot(history.history['val_loss'], label='Validation Loss')
+    plt.title('Model Loss')
+    plt.ylabel('Loss')
+    plt.xlabel('Epoch')
+    plt.legend(loc='upper right')
+    plt.show() 
 
-
-    print(f"Best trial: {best_trial.trial_id}")
-    print(f"Best trial value: {best_trial.score}")
-
-    # Best hyperparameters
-    hyperparameters = best_trial.hyperparameters
-    print(f"Best trial hyperparameters: {hyperparameters.values}")
-
-    # Build the best model using the best hyperparameters
-    autoencoder = SEQ_VAE(input_shape).build(hyperparameters)    
-
+    autoencoder.save(model_save_path)
+    
+    ###################################################################################################################### 
+    
+    
     # Reconstruction and threshold finding
     start_time = time.time()
     val_predictions = autoencoder.predict(X_val)
@@ -430,8 +542,8 @@ def main():
     val_errors = np.mean(np.square(X_val - val_predictions), axis=(1,2))
 
     # Get the reconstruction error on the labeled validation anomalies
-    bearing_val_predictions = autoencoder.predict(bearings_train)
-    bearing_val_errors = np.mean(np.square(bearings_train - bearing_val_predictions), axis=(1,2))
+    bearing_val_predictions = autoencoder.predict(bearings_val)
+    bearing_val_errors = np.mean(np.square(bearings_val - bearing_val_predictions), axis=(1,2))
     
     # Tune the threshold based on precision-recall curve
     # Labels for the validation set should be all 0 (normal) and for the labeled validation anomalies should be 1 (anomalous)
@@ -449,23 +561,35 @@ def main():
     diff = abs(precision - recall)
 
     # Find the index of the minimum difference
-    optimal_idx = np.argmin(diff)
+    optimal_idx = np.argmin(diff)   
 
     # Get the optimal threshold
     optimal_threshold = thresholds[optimal_idx]
-
-    print(f"Optimal threshold: {optimal_threshold}")
     
+    #optimal_threshold = find_optimal_threshold_f1(combined_errors, combined_labels)
+    
+    '''# Calculate ROC curve
+    fpr, tpr, thresholds = roc_curve(combined_labels, combined_errors)
 
+    # Find the optimal threshold
+    optimal_idx = np.argmax(tpr - fpr)  # This gives you the threshold with the maximum difference between TPR and FPR
+    optimal_threshold = thresholds[optimal_idx]'''
+
+    print(f"Optimal Threshold: {optimal_threshold}")
+    
     # Final evaluation on the test set
     bearing_test_predictions = autoencoder.predict(bearings_test)
     bearing_test_errors = np.mean(np.square(bearings_test - bearing_test_predictions), axis=(1,2))
 
     # Randomly select a predefined number of noise samples to include in the test set
-    predefined_noise_samples_count = len(bearings_test)  # Set the desired number of noise samples
+    # In an ideal situation, this set would be independent set, i.e., not used for training or validation
+    '''predefined_noise_samples_count = len(bearings_test)  # Set the desired number of noise samples
     random_noise_indices = np.random.choice(noise_samples.shape[0], predefined_noise_samples_count, replace=False)
     selected_noise_samples = noise_samples[random_noise_indices]
-    selected_noise_labels = noise_labels[random_noise_indices]
+    selected_noise_labels = noise_labels[random_noise_indices]'''
+    
+    selected_noise_samples = X_test
+    selected_noise_labels = y_test
 
     # Predict the reconstruction error for the selected noise samples
     noise_test_predictions = autoencoder.predict(selected_noise_samples)
@@ -483,26 +607,41 @@ def main():
 
     print(classification_report(combined_test_labels, predicted_labels, target_names=["Noise", "Anomaly"]))
     
+    rec_error_noise_avg = np.mean(val_errors)
+    rec_error_bearing_avg = np.mean(bearing_val_errors)
+    rec_error_noise_std = np.std(val_errors)
+    rec_error_bearing_std = np.std(bearing_val_errors)
+    
     print("Reconstruction Errors:")
     print("Average Reconstruction Error for Validation Data (only noise):")
-    print(f'Mean Reconstruction Error: {np.mean(val_errors)}')
-    print(f'Standard Deviation of Reconstruction Error: {np.std(val_errors)}')
+    print(f'Mean Reconstruction Error: {rec_error_noise_avg}')
+    print(f'Standard Deviation of Reconstruction Error: {rec_error_noise_std}')
     print("Average Reconstruction Error for Validation Data (only bearings):")
-    print(f'Mean Reconstruction Error: {np.mean(bearing_val_predictions)}')
-    print(f'Standard Deviation of Reconstruction Error: {np.std(bearing_val_errors)}')
+    print(f'Mean Reconstruction Error: {rec_error_bearing_avg}')
+    print(f'Standard Deviation of Reconstruction Error: {rec_error_bearing_std}')
     print("\n")
+    
+    acc = accuracy_score(combined_test_labels, predicted_labels)
+    prec = precision_score(combined_test_labels, predicted_labels)
+    rec = recall_score(combined_test_labels, predicted_labels)
+    f1 = f1_score(combined_test_labels, predicted_labels)
+    auc = roc_auc_score(combined_test_labels, predicted_labels)
+    inf_time = inference_time / len(X_val) * 1000
+    proc_time = pre_proc_time / (len(y_train) + len(y_val)) * 1000
     
     # Global Evaluation
     print("Evaluation:")
-    print(f"Optimal Threshold: {optimal_threshold:.3f}")  
-    print(f"Accuracy: {accuracy_score(combined_test_labels, predicted_labels):.3f}")
-    print(f"Precision: {precision_score(combined_test_labels, predicted_labels):.3f}")
-    print(f"Recall: {recall_score(combined_test_labels, predicted_labels):.3f}")
-    print(f"F1 Score: {f1_score(combined_test_labels, predicted_labels):.3f}")
-    print(f"AUC: {roc_auc_score(combined_test_labels, predicted_labels):.3f}")
-    print(f"Average inference time per sample: {(inference_time / len(X_val)) * 1000:.3f} ms")
-    print(f"Average processing time per sample: {(pre_proc_time / (len(y_train) + len(y_val)) * 1000):.3f} ms")
-
+    print(f"Optimal Threshold: {optimal_threshold}")  
+    print(f"Accuracy: {acc:.3f}")
+    print(f"Precision: {prec:.3f}")
+    print(f"Recall: {rec:.3f}")
+    print(f"F1 Score: {f1:.3f}")
+    print(f"AUC: {auc:.3f}")
+    print(f"Average Inference Time per Sample: {inf_time:.3f} ms")
+    print(f"Average Preprocessing Time per Sample: {proc_time:.3f} ms")   
+    
+    if save_metrics:
+        save_metrics_to_csv(output_dir_metrics, metrics_file_name, prec, rec, f1, acc, auc, optimal_threshold, rec_error_noise_avg, rec_error_bearing_avg, rec_error_noise_std, rec_error_bearing_std, inf_time, proc_time)
 
     # Count the number of noise samples and bearings samples in the test set
     unique, counts = np.unique(combined_test_labels, return_counts=True)
@@ -523,18 +662,19 @@ def main():
     plt.title('Confusion Matrix')
     plt.show()
     
-    # Thresholds vs metrics
+    # Final test with left over bearing samples
+    print("Final Evaluation:")
+    only_bearings_eval_predictions = autoencoder.predict(only_bearings_eval)
+    only_bearings_eval_errors = np.mean(np.square(only_bearings_eval - only_bearings_eval_predictions), axis=(1,2))
+    detected_labels = (only_bearings_eval_errors > optimal_threshold).astype(int)
+    detected_anomalies = np.count_nonzero(detected_labels)
+    detected_anomalies_per = detected_anomalies / len(only_bearings_eval)
+    print(f"Detected Anomalies: {detected_anomalies}")
+    print(f"Detected Anomalies Percentage: {detected_anomalies_per}")
     
-    # Use the IQR method to filter out outliers
-    Q1 = np.percentile(combined_test_errors, 25)
-    Q3 = np.percentile(combined_test_errors, 75)
-    IQR = Q3 - Q1
-    lower_bound = Q1 - 1.5 * IQR
-    upper_bound = Q3 + 1.5 * IQR
-    filtered_errors = combined_test_errors[(combined_test_errors >= lower_bound) & (combined_test_errors <= upper_bound)]
-
-    # Generate thresholds within the filtered range
-    thresholds = np.linspace(min(filtered_errors), max(filtered_errors), 100)
+    
+    # Thresholds vs metrics
+    thresholds = np.linspace(min(combined_errors), max(combined_errors), 100)
     f1_scores_test = []
     precisions_test = []
     recalls_test = []
@@ -550,8 +690,6 @@ def main():
     
     # Plot metrics vs threshold
     plot_metrics_vs_threshold(thresholds, f1_scores_test, accuracy_test, precisions_test, recalls_test, roc_aucs_test, optimal_threshold)
-
-    #remove_unused_trials(tuner_dir, project_name, best_trial)
 
 if __name__ == "__main__":
     main()

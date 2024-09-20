@@ -27,7 +27,7 @@ from keras.callbacks import EarlyStopping
 from keras.models import load_model
 from keras_tuner import HyperModel, HyperParameters, BayesianOptimization, Hyperband
 from UN_CNN_Models import VDAE, vdae_model_builder, DENSE
-from UN_CNN_Models_TuningVersion import DENSE_TUNING
+from UN_CNN_Models_TuningVersion import DENSE_TUNING, vdae_model_builder_Tuning, VDAE_Tuning
 from AE_Aux_Func import reduce_dimensions, plot_reduced_data, plot_metrics_vs_threshold, find_optimal_threshold_f1, save_metrics_to_csv
 
 
@@ -165,11 +165,11 @@ def main():
 
     # Main execution
     directories = define_directories()
-    combined_features_normalized, labels, pre_proc_time, pre_proc_string = load_and_extract_features(directories)
+    combined_features, labels, pre_proc_time, pre_proc_string = load_and_extract_features(directories)
     
     # Normalize features
     scaler = StandardScaler()
-    features = scaler.fit_transform(combined_features_normalized)
+    features = scaler.fit_transform(combined_features)
 
     # Change the model name to the desired model
     model = 'DAE' 
@@ -224,8 +224,7 @@ def main():
     bearings_test = bearings_test_complete[:test_size]
     bearings_val_labels = bearings_val_labels_complete[:val_size]
     bearings_test_labels = bearings_test_labels_complete[:test_size]
-    
-    # The remaining bearing samples are used for the final evaluation
+
     # The remaining bearing samples are used for the final evaluation
     only_bearings_eval = np.concatenate((bearings_val_complete[val_size:], bearings_test_complete[test_size:]))
     only_bearings_eval_labels = np.concatenate((bearings_val_labels[val_size:], bearings_test_labels[test_size:]))
@@ -259,7 +258,7 @@ def main():
     current_dir = os.getcwd()    
     project_name = 'AE_TB_' + str(batch_size) + 'bs_' + pre_proc_string
     #pre_proc_string = pre_proc_string + '_96k'
-    model_string = 'DENSE'
+    model_string = 'DAE'
     
     if model == 'VDAE':
         model_string = 'VDAE_lm_' + str(latent_dim)
@@ -279,44 +278,40 @@ def main():
     parameters_save_path = os.path.join(current_dir, 'AE_Models', 'NEW_AMR', 'Bayesian', save_parameters_name)
     tuner_dir = os.path.join(current_dir, 'Bayesian_Tuning', 'NEW_AMR', 'AE_DENSE')
     
+    # Early stopping setup
+    early_stopping = EarlyStopping(monitor='val_loss', mode='min', patience=50, restore_best_weights=True, verbose=2)
+    
+    ######################################################################################################################
+    
+    ## For Hypertuning, uncomment the following block and comment the block below it
+    ## For training and testing the model with default parameters, comment the following block
+
+
+    '''
+    # Define the BayesianOptimization tuner
     tuner = BayesianOptimization(
-        hypermodel=DENSE_TUNING(input_dim=input_shape),
+        hypermodel=DENSE(input_shape),
         objective='val_loss',
         max_trials=20,
         executions_per_trial=2,
         directory=tuner_dir,
         project_name=project_name
     )
+    
+    tuner_hyper = Hyperband(
+        hypermodel=DENSE(input_shape),
+        objective=Objective("val_loss", direction="min"),
+        #max_trials=10,
+        #executions_per_trial=2,
+        max_epochs=epochs,
+        factor=3,
+        directory=tuner_dir,
+        project_name=project_name
+    )
 
-    '''# For Hyperband tuning
-    model_save_path = os.path.join(current_dir, 'AE_Models', 'NEW_AMR', 'Hyperband', model_name) 
-    parameters_save_path = os.path.join(current_dir, 'AE_Models', 'NEW_AMR', 'Hyperband', save_parameters_name)    
-    tuner_dir = os.path.join(current_dir, 'Hyperband_Tuning', 'NEW_AMR', 'AE_DENSE')
-        
-    # For Dense Autoencoder
-    tuner = Hyperband(DENSE_TUNING(input_dim=input_shape),
-                    objective='val_loss',
-                    max_epochs=epochs,
-                    factor=3,
-                    directory=tuner_dir,
-                    project_name=project_name)'''
-    
-    # For Variational Dense Autoencoder
-    '''tuner = Hyperband(lambda hp: vdae_model_builder_Tuning(hp, input_dim=input_shape),
-                    objective='val_loss',
-                    max_epochs=epochs,
-                    factor=3,
-                    directory=tuner_dir,
-                    project_name=project_name)'''
-                    
-    # Early stopping setup
-    early_stopping = EarlyStopping(monitor='val_loss', patience=50, restore_best_weights=True, verbose=1)
-    
     try:
-        # Attempt to load the best model
-        # autoencoder = tuner.get_best_models(num_models=1)[0]
-        autoencoder = load_model(model_save_path, custom_objects={'DENSE_TUNING': DENSE_TUNING})
-        
+        # Attempt to load the best model        
+        autoencoder = load_model(model_save_path)        
         
     except (IndexError, ValueError):
         # Handle the case where no best model is available
@@ -340,46 +335,44 @@ def main():
             
             # Convert and write JSON object to file
             with open(parameters_save_path, "w") as outfile: 
-                json.dump(hyperparameters.values, outfile)
-            autoencoder.summary()
+                json.dump(hyperparameters.values, outfile)            
             
         except IndexError:
             print("Search completed, but no best model was found.")
-            exit(1)
-    
-
-    # Build the best model using the best hyperparameters
-    #autoencoder = DENSE_TUNING(input_shape).build(hyperparameters)
-    #autoencoder.fit(X_train, X_train, epochs=epochs, batch_size=batch_size, callbacks=[early_stopping], validation_split=0.1, verbose=1)
-   
-    '''if(os.path.exists(model_save_path) and config.model_load): 
-        autoencoder = load_model(model_save_path, custom_objects={'VDAE': VDAE})
-        print("Model loaded successfully!")
-    else:
-        if(model == 'VDAE'):
-            autoencoder = vdae_model_builder(input_shape=input_shape, latent_dim=latent_dim)
-            input_shape_with_batch = (batch_size, input_shape)
-            autoencoder.build(input_shape_with_batch)
-        else:
-            autoencoder = DENSE(input_shape).build()
-            #autoencoder.build(input_shape)
-        history = autoencoder.fit(X_train, X_train, epochs=epochs, batch_size=batch_size, callbacks=[early_stopping], validation_split=0.1, verbose=1) 
-        #autoencoder.fit(X_train, X_train, epochs=epochs, batch_size=batch_size, validation_split=0.1, verbose=1)         
-        if config.save_model:          
-            # Save the model
-            autoencoder.save(model_save_path)            
-            print("Model saved successfully!")    
+            exit(1)'''
             
-    # Plot training & validation loss values
-    plt.plot(history.history['loss'], label='Training Loss')
-    plt.plot(history.history['val_loss'], label='Validation Loss')
-    plt.title('Model Loss')
-    plt.ylabel('Loss')
-    plt.xlabel('Epoch')
-    plt.legend(loc='upper right')
-    plt.show()'''
+    ######################################################################################################################
+    
+    
+    ######################################################################################################################
+    
+    ## For training and testing the model with default parameters, uncomment the following block and comment the block above it
+    ## For hyperparameter tuning, comment the following block
+    
+    if(config.model_load and os.path.exists(model_save_path)):
+        autoencoder = load_model(model_save_path)
+    
+    else:
+        autoencoder = DENSE(input_shape).build()
+            
+        history = autoencoder.fit(X_train, X_train, epochs=epochs, batch_size=batch_size, callbacks=[early_stopping], validation_split=0.1, verbose=2)
+        
+        if(config.save_model):
+            autoencoder.save(model_save_path)        
+        
+        # Plot training & validation loss values
+        plt.plot(history.history['loss'], label='Training Loss')
+        plt.plot(history.history['val_loss'], label='Validation Loss')
+        plt.title('Model Loss')
+        plt.ylabel('Loss')
+        plt.xlabel('Epoch')
+        plt.legend(loc='upper right')
+        plt.show()      
 
-   
+    ######################################################################################################################
+    
+    autoencoder.summary()
+    
     # Reconstruction and threshold finding
     start_time = time.time()
     val_predictions = autoencoder.predict(X_val)
@@ -401,7 +394,7 @@ def main():
     combined_errors = np.concatenate([val_errors, bearing_val_errors])
     combined_labels = np.concatenate([y_val_binary, y_bearing_binary])
 
-    '''# Calculate precision, recall, and thresholds
+    # Calculate precision, recall, and thresholds
     precision, recall, thresholds = precision_recall_curve(combined_labels, combined_errors)
 
     # Calculate the absolute difference between precision and recall
@@ -411,20 +404,18 @@ def main():
     optimal_idx = np.argmin(diff)   
 
     # Get the optimal threshold
-    optimal_threshold = thresholds[optimal_idx]'''
+    optimal_threshold = thresholds[optimal_idx]
     
     #optimal_threshold = find_optimal_threshold_f1(combined_errors, combined_labels)
     
-    # Calculate ROC curve
+    '''# Calculate ROC curve
     fpr, tpr, thresholds = roc_curve(combined_labels, combined_errors)
 
     # Find the optimal threshold
     optimal_idx = np.argmax(tpr - fpr)  # This gives you the threshold with the maximum difference between TPR and FPR
-    optimal_threshold = thresholds[optimal_idx]
+    optimal_threshold = thresholds[optimal_idx]'''
 
-    print(f"Optimal Threshold (ROC): {optimal_threshold}")
-
-    print(f"Optimal threshold: {optimal_threshold}")
+    print(f"Optimal Threshold: {optimal_threshold}")
     
     # Final evaluation on the test set
     bearing_test_predictions = autoencoder.predict(bearings_test)

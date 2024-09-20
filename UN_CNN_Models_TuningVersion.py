@@ -700,8 +700,8 @@ def vdae_model_builder_Tuning(hp, input_shape):
 
 
 class DENSE_TUNING(HyperModel):
-    def __init__(self, input_dim):
-        self.input_dim = input_dim
+    def __init__(self, input_shape):
+        self.input_shape = input_shape
 
     def build(self, hp):
         if not isinstance(hp, HyperParameters):
@@ -721,7 +721,7 @@ class DENSE_TUNING(HyperModel):
         l1_l2_reg = regularizers.L1L2(l1=hp.Float('l1', min_value=1e-5, max_value=1e-2, sampling='log'),
                           l2=hp.Float('l2', min_value=1e-5, max_value=1e-2, sampling='log'))
 
-        input_layer = Input(shape=(self.input_dim,))
+        input_layer = Input(shape=(self.input_shape,))
         #noisy_inputs = Lambda(lambda x: x + noise_factor * tf.random.normal(tf.shape(x)))(input_layer)
         noisy_inputs = GaussianNoise(noise_factor)(input_layer)
         

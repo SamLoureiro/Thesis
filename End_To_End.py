@@ -202,7 +202,7 @@ def main():
     X_val_complete, X_test_complete, y_val_complete, y_test_complete = train_test_split(X_val_complete, y_val_complete, test_size=0.35, random_state=42)
 
     # Split bearing samples into validation and test sets
-    bearings_val_complete, bearings_test_complete, bearings_val_labels_complete, bearings_test_labels_complete = train_test_split(bearings_samples, bearings_labels, test_size=0.5, random_state=42)    
+    bearings_val_complete, bearings_test_complete, bearings_val_labels_complete, bearings_test_labels_complete = train_test_split(bearings_samples, bearings_labels, test_size=0.2, random_state=42)    
 
     print(bearings_val_labels_complete.head(10))
     
@@ -271,7 +271,7 @@ def main():
     combined_test_labels_ae = np.concatenate([bearings_test_labels_ae, y_test])
     combined_test_labels = np.concatenate([bearings_test_labels, y_test])
 
-    optimal_threshold = 0.444
+    optimal_threshold = 0.480665
 
     # Determine which samples are anomalies based on the optimal threshold
     test_anomalies = combined_test_errors > optimal_threshold
@@ -320,8 +320,11 @@ def main():
     
     y_pred_probs = ygg.predict(X_test_bearing)
     
+    # Threshold for classifying a sample as a damaged bearing
+    threshold = 0.67  # Based on the probability distribution plot
+    
     # Convert predicted probabilities to binary class labels
-    pred_bearing_faults = (y_pred_probs > 0.5).astype(int).flatten()    
+    pred_bearing_faults = (y_pred_probs > threshold).astype(int).flatten()    
     
     pred_bearing_faults = pred_bearing_faults + 1   # Good Bearing (1), Damaged Bearing (2)
     
@@ -349,24 +352,24 @@ def main():
 
     # Plot the probability distribution for each label
     plt.figure(figsize=(12, 6))
-    sns.histplot(data=probs_df, x='Predicted Probability', hue='Label Name', kde=True, bins=30, palette='Set2')
+
+    # Plot histograms with KDE for each label
+    sns.histplot(data=probs_df, x='Predicted Probability', hue='Label Name', kde=False, bins=30, palette='Set2', alpha=0.4)
+
+    # Plot KDE plots separately to add curve labels
+    for label, color in zip(['Noise', 'Healthy Bearing', 'Damaged Bearing'], sns.color_palette('Set2', 3)):
+        sns.kdeplot(
+            data=probs_df[probs_df['Label Name'] == label],
+            x='Predicted Probability',
+            color=color,
+            label=label
+        )
+
     plt.xlabel('Predicted Probability')
     plt.ylabel('Density')
     plt.title('Probability Distribution for Each Label')
-    plt.axvline(0.5, color='red', linestyle='--', label='Decision Threshold (0.5)')
+    plt.axvline(threshold, color='red', linestyle='--', label='Decision Threshold (0.5)')
     plt.legend(title='True Label')
-    # Add a caption explaining the colors
-    caption_text = (
-        "Colors represent true labels:\n"
-        "- Green: Noise\n"
-        "- Blue: Healthy Bearing\n"
-        "- Orange: Damaged Bearing"
-    )
-    plt.text(
-        -0.4, 0.8, caption_text, transform=plt.gca().transAxes, fontsize=10,
-        verticalalignment='top', bbox=dict(boxstyle="round,pad=0.3", edgecolor='black', facecolor='white')
-    )
-
     plt.show()
     
 if __name__ == "__main__":
