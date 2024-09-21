@@ -319,7 +319,6 @@ y = np.array(labels)
 
 # Convert features to a DataFrame
 features_df = pd.DataFrame(combined_features_normalized, columns=combined_features_df.columns)
-#features_df = combined_features_df
 
 # Convert labels to a DataFrame
 labels_df = pd.DataFrame(y, columns=["label"])

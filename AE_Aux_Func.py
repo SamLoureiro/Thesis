@@ -42,23 +42,59 @@ def plot_reduced_data(X_reduced, y, y_pred=None, title="2D Map of Samples"):
     plt.legend(loc='best')
     plt.show()
 
-def plot_metrics_vs_threshold(thresholds, f1_scores_test, accuracy_test ,precisions_test, recalls_test, roc_aucs_test, optimal_threshold):
-    #f1_scores_train, accuracy_train ,precision_train, recalls_train, roc_aucs_train,
+import plotly.graph_objects as go
+
+def plot_metrics_vs_threshold(
+    thresholds, 
+    optimal_threshold, 
+    # Optional test metrics
+    f1_scores_test=None, 
+    accuracy_test=None, 
+    precisions_test=None, 
+    recalls_test=None, 
+    roc_aucs_test=None, 
+    # Optional validation metrics
+    f1_scores_val=None, 
+    accuracy_val=None, 
+    precisions_val=None, 
+    recalls_val=None, 
+    roc_aucs_val=None
+):
     fig = go.Figure()
 
+    # Add traces for test metrics if provided
+    if f1_scores_test is not None:
+        fig.add_trace(go.Scatter(x=thresholds, y=f1_scores_test, mode='lines', name='F1 Score Test'))
+    if accuracy_test is not None:
+        fig.add_trace(go.Scatter(x=thresholds, y=accuracy_test, mode='lines', name='Accuracy Test'))
+    if precisions_test is not None:
+        fig.add_trace(go.Scatter(x=thresholds, y=precisions_test, mode='lines', name='Precision Test'))
+    if recalls_test is not None:
+        fig.add_trace(go.Scatter(x=thresholds, y=recalls_test, mode='lines', name='Recall Test'))
+    if roc_aucs_test is not None:
+        fig.add_trace(go.Scatter(x=thresholds, y=roc_aucs_test, mode='lines', name='ROC-AUC Test'))
 
-    # Add traces for test metrics
-    fig.add_trace(go.Scatter(x=thresholds, y=f1_scores_test, mode='lines', name='F1 Score_Test'))
-    fig.add_trace(go.Scatter(x=thresholds, y=accuracy_test, mode='lines', name='Accuracy_Test'))
-    fig.add_trace(go.Scatter(x=thresholds, y=precisions_test, mode='lines', name='Precision_Test'))
-    fig.add_trace(go.Scatter(x=thresholds, y=recalls_test, mode='lines', name='Recall_Test'))
-    fig.add_trace(go.Scatter(x=thresholds, y=roc_aucs_test, mode='lines', name='ROC-AUC_Test'))
+    # Add traces for validation metrics if provided
+    if f1_scores_val is not None:
+        fig.add_trace(go.Scatter(x=thresholds, y=f1_scores_val, mode='lines', name='F1 Score Validation', line=dict(dash='dot')))
+    if accuracy_val is not None:
+        fig.add_trace(go.Scatter(x=thresholds, y=accuracy_val, mode='lines', name='Accuracy Validation', line=dict(dash='dot')))
+    if precisions_val is not None:
+        fig.add_trace(go.Scatter(x=thresholds, y=precisions_val, mode='lines', name='Precision Validation', line=dict(dash='dot')))
+    if recalls_val is not None:
+        fig.add_trace(go.Scatter(x=thresholds, y=recalls_val, mode='lines', name='Recall Validation', line=dict(dash='dot')))
+    if roc_aucs_val is not None:
+        fig.add_trace(go.Scatter(x=thresholds, y=roc_aucs_val, mode='lines', name='ROC-AUC Validation', line=dict(dash='dot')))
 
     # Add vertical line for optimal threshold
-    fig.add_vline(x=optimal_threshold, line=dict(color='red', width=2, dash='dash'),
-                  annotation_text='Optimal Threshold', annotation_position='top right')
+    fig.add_vline(
+        x=optimal_threshold, 
+        line=dict(color='red', width=2, dash='dash'),
+        annotation_text='Optimal Threshold', 
+        annotation_position='top right'
+    )
 
-    # Update layout to limit the X-axis range
+    # Update layout
     fig.update_layout(
         title='Metrics vs. Threshold',
         xaxis_title='Threshold',
@@ -66,11 +102,12 @@ def plot_metrics_vs_threshold(thresholds, f1_scores_test, accuracy_test ,precisi
         legend_title='Metric',
         template='plotly_dark',
         showlegend=True,
-        #xaxis_range=[0, 10]  # Limit the X-axis to the specified maximum threshold
     )
 
     # Show the figure
     fig.show()
+
+
     
     
 # Function to find the optimal threshold for reconstruction error

@@ -249,7 +249,7 @@ def main():
     
     # Epochs and batch size
     epochs = 300
-    batch_size = 64
+    batch_size = 512
     
     # Only for VDAE
     latent_dim = 32
@@ -266,17 +266,19 @@ def main():
     else:
         model_string = model
         
-    metrics_file_name = f"{model_string}_{pre_proc_string}_results.csv"
+    metrics_file_name = f"{model_string}_{pre_proc_string}_bs_'{batch_size}_results.csv"
     output_dir_metrics = os.path.join(current_dir, 'AE_Results', 'NEW_AMR')
        
-    model_name = f"{model_string}_{pre_proc_string}.keras"
-    save_parameters_name = f"{model_string}_{pre_proc_string}_parameters.json"        
+    model_name = f"{model_string}_{pre_proc_string}_bs_'{batch_size}.keras"
+    save_parameters_name = f"{model_string}_{pre_proc_string}_bs_'{batch_size}_parameters.json"        
 
     
     # For Bayesian tuning
-    model_save_path = os.path.join(current_dir, 'AE_Models', 'NEW_AMR', 'Bayesian', model_name) 
+    model_save_path_tuner = os.path.join(current_dir, 'AE_Models', 'NEW_AMR', 'Bayesian', model_name) 
     parameters_save_path = os.path.join(current_dir, 'AE_Models', 'NEW_AMR', 'Bayesian', save_parameters_name)
     tuner_dir = os.path.join(current_dir, 'Bayesian_Tuning', 'NEW_AMR', 'AE_DENSE')
+    
+    model_save_path = os.path.join(current_dir, 'AE_Models', 'NEW_AMR', model_name) 
     
     # Early stopping setup
     early_stopping = EarlyStopping(monitor='val_loss', mode='min', patience=50, restore_best_weights=True, verbose=2)
@@ -311,7 +313,7 @@ def main():
 
     try:
         # Attempt to load the best model        
-        autoencoder = load_model(model_save_path)        
+        autoencoder = load_model(model_save_path_tuner)        
         
     except (IndexError, ValueError):
         # Handle the case where no best model is available
@@ -323,7 +325,7 @@ def main():
         # Try again to get the best model after the search
         try:
             autoencoder = tuner.get_best_models(num_models=1)[0]
-            autoencoder.save(model_save_path)
+            autoencoder.save(model_save_path_tuner)
             
             best_trial = tuner.oracle.get_best_trials(1)[0]
             print(f"Best trial: {best_trial.trial_id}")
@@ -347,13 +349,28 @@ def main():
     ######################################################################################################################
     
     ## For training and testing the model with default parameters, uncomment the following block and comment the block above it
-    ## For hyperparameter tuning, comment the following block
+    ## You can also use this block for hyperparameter tuning, but you will have to manually set the hyperparameters
+    ## For automatic hyperparameter tuning, comment the following block
     
     if(config.model_load and os.path.exists(model_save_path)):
         autoencoder = load_model(model_save_path)
     
     else:
-        autoencoder = DENSE(input_shape).build()
+        autoencoder = DENSE(
+                    input_dim=input_shape,                       # Replace with your actual input dimension
+                    noise_factor=0.1,                            # Custom noise factor
+                    units_1=352,                                 # Custom number of units for first dense layer
+                    dropout_1=0.2,                               # Custom dropout rate for first layer
+                    units_2=160,                                 # Custom number of units for second dense layer
+                    dropout_2=0.3,                               # Custom dropout rate for second layer
+                    units_3=128,                                 # Custom number of units for third dense layer
+                    bottleneck_units=24,                         # Custom number of bottleneck units
+                    dropout_3=0.3,                               # Custom dropout rate for first decoder layer
+                    dropout_4=0.2,                               # Custom dropout rate for second decoder layer
+                    l1=1.875817536732116e-05,                    # Custom L1 regularization factor
+                    l2=1.2415922129884135e-05,                   # Custom L2 regularization factor
+                    learning_rate=0.00139288326019166
+        ).build()
             
         history = autoencoder.fit(X_train, X_train, epochs=epochs, batch_size=batch_size, callbacks=[early_stopping], validation_split=0.1, verbose=2)
         
@@ -391,11 +408,11 @@ def main():
     y_bearing_binary = np.array([1] * len(bearing_val_errors))  # Anomalous data
 
     # Combine validation errors and bearing validation errors
-    combined_errors = np.concatenate([val_errors, bearing_val_errors])
-    combined_labels = np.concatenate([y_val_binary, y_bearing_binary])
+    combined_val_errors = np.concatenate([val_errors, bearing_val_errors])
+    combined_val_labels = np.concatenate([y_val_binary, y_bearing_binary])
 
-    # Calculate precision, recall, and thresholds
-    precision, recall, thresholds = precision_recall_curve(combined_labels, combined_errors)
+    '''# Calculate precision, recall, and thresholds
+    precision, recall, thresholds = precision_recall_curve(combined_val_labels, combined_val_errors)
 
     # Calculate the absolute difference between precision and recall
     diff = abs(precision - recall)
@@ -404,16 +421,17 @@ def main():
     optimal_idx = np.argmin(diff)   
 
     # Get the optimal threshold
-    optimal_threshold = thresholds[optimal_idx]
+    optimal_threshold = thresholds[optimal_idx]'''
+    #optimal_threshold = 0.4612
     
-    #optimal_threshold = find_optimal_threshold_f1(combined_errors, combined_labels)
+    #optimal_threshold = find_optimal_threshold_f1(combined_val_errors, combined_val_labels)
     
-    '''# Calculate ROC curve
-    fpr, tpr, thresholds = roc_curve(combined_labels, combined_errors)
+    # Calculate ROC curve
+    fpr, tpr, thresholds = roc_curve(combined_val_labels, combined_val_errors)
 
     # Find the optimal threshold
     optimal_idx = np.argmax(tpr - fpr)  # This gives you the threshold with the maximum difference between TPR and FPR
-    optimal_threshold = thresholds[optimal_idx]'''
+    optimal_threshold = thresholds[optimal_idx]
 
     print(f"Optimal Threshold: {optimal_threshold}")
     
@@ -421,23 +439,13 @@ def main():
     bearing_test_predictions = autoencoder.predict(bearings_test)
     bearing_test_errors = np.mean(np.square(bearings_test - bearing_test_predictions), axis=1)
 
-    # Randomly select a predefined number of noise samples to include in the test set
-    # In an ideal situation, this set would be independent set, i.e., not used for training or validation
-    '''predefined_noise_samples_count = len(bearings_test)  # Set the desired number of noise samples
-    random_noise_indices = np.random.choice(noise_samples.shape[0], predefined_noise_samples_count, replace=False)
-    selected_noise_samples = noise_samples[random_noise_indices]
-    selected_noise_labels = noise_labels[random_noise_indices]'''
-    
-    selected_noise_samples = X_test
-    selected_noise_labels = y_test
-
     # Predict the reconstruction error for the selected noise samples
-    noise_test_predictions = autoencoder.predict(selected_noise_samples)
-    noise_test_errors = np.mean(np.square(selected_noise_samples - noise_test_predictions), axis=1)
+    noise_test_predictions = autoencoder.predict(X_test)
+    noise_test_errors = np.mean(np.square(X_test - noise_test_predictions), axis=1)
 
     # Combine the noise and bearing errors
-    combined_test_errors = np.concatenate([bearing_test_errors, noise_test_errors])
-    combined_test_labels = np.concatenate([bearings_test_labels_ae, selected_noise_labels])
+    combined_test_errors = np.concatenate([noise_test_errors, bearing_test_errors])
+    combined_test_labels = np.concatenate([y_test, bearings_test_labels_ae])
 
     # Determine which samples are anomalies based on the optimal threshold
     test_anomalies = combined_test_errors > optimal_threshold
@@ -492,14 +500,24 @@ def main():
 
     cm = confusion_matrix(combined_test_labels, predicted_labels)
 
-    # Plot confusion matrix
+    # Normalize the confusion matrix to percentages
+    cm_percentage = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis] * 100
+
+    # Create annotations with both percentage and absolute values
+    annotations = np.empty_like(cm).astype(str)
+    for i in range(cm.shape[0]):
+        for j in range(cm.shape[1]):
+            annotations[i, j] = f'{cm_percentage[i, j]:.1f}% ({cm[i, j]})'
+
+    # Plot the confusion matrix with both percentages and absolute values
     plt.figure(figsize=(8, 6))
-    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', cbar=False,
-                xticklabels=['Noise', 'Anomaly'],
-                yticklabels=['Noise', 'Anomaly'])
+    sns.heatmap(cm_percentage, annot=annotations, fmt='', cmap='Blues', cbar=False,
+                xticklabels=['Healthy', 'Damaged'],
+                yticklabels=['Healthy', 'Damaged'])
+
     plt.xlabel('Predicted Label')
     plt.ylabel('True Label')
-    plt.title('Confusion Matrix')
+    plt.title('Confusion Matrix (Percentage and Count)')
     plt.show()
     
     # Final test with left over bearing samples
@@ -513,13 +531,29 @@ def main():
     print(f"Detected Anomalies Percentage: {detected_anomalies_per}")
     
     
-    # Thresholds vs metrics
-    thresholds = np.linspace(min(combined_errors), max(combined_errors), 100)
+    # Thresholds vs metrics for validation data
+    thresholds = np.linspace(min(combined_val_errors), max(combined_val_errors), 100)
+    f1_scores_val = []
+    precisions_val = []
+    recalls_val = []
+    accuracy_val = []
+    roc_aucs_val = []
+
+    for threshold in thresholds:
+        y_val_pred = (combined_val_errors > threshold).astype(int)  # Assuming combined_val_errors is for validation
+        f1_scores_val.append(f1_score(combined_val_labels, y_val_pred))
+        accuracy_val.append(accuracy_score(combined_val_labels, y_val_pred))
+        precisions_val.append(precision_score(combined_val_labels, y_val_pred, zero_division=0))
+        recalls_val.append(recall_score(combined_val_labels, y_val_pred))
+        roc_aucs_val.append(roc_auc_score(combined_val_labels, combined_val_errors))
+
+    # Thresholds vs metrics for test data
     f1_scores_test = []
     precisions_test = []
     recalls_test = []
     accuracy_test = []
     roc_aucs_test = []
+
     for threshold in thresholds:
         y_test_pred = (combined_test_errors > threshold).astype(int)
         f1_scores_test.append(f1_score(combined_test_labels, y_test_pred))
@@ -527,9 +561,23 @@ def main():
         precisions_test.append(precision_score(combined_test_labels, y_test_pred, zero_division=0))
         recalls_test.append(recall_score(combined_test_labels, y_test_pred))
         roc_aucs_test.append(roc_auc_score(combined_test_labels, combined_test_errors))
-    
+
     # Plot metrics vs threshold
-    plot_metrics_vs_threshold(thresholds, f1_scores_test, accuracy_test, precisions_test, recalls_test, roc_aucs_test, optimal_threshold)
+    plot_metrics_vs_threshold(
+        thresholds, 
+        optimal_threshold, 
+        f1_scores_test=f1_scores_test, 
+        accuracy_test=accuracy_test, 
+        precisions_test=precisions_test, 
+        recalls_test=recalls_test, 
+        roc_aucs_test=roc_aucs_test,
+        f1_scores_val=f1_scores_val, 
+        accuracy_val=accuracy_val, 
+        precisions_val=precisions_val, 
+        recalls_val=recalls_val, 
+        roc_aucs_val=roc_aucs_val
+    )
+
         
 if __name__ == "__main__":
     main()

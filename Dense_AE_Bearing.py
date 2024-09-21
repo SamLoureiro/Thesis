@@ -6,12 +6,13 @@ from sklearn.preprocessing import StandardScaler
 from keras.callbacks import EarlyStopping
 from keras.models import load_model
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import precision_score, recall_score, f1_score, accuracy_score, classification_report, confusion_matrix
+from sklearn.metrics import precision_score, recall_score, f1_score, accuracy_score, classification_report, roc_curve, confusion_matrix, precision_recall_curve, roc_auc_score
 import matplotlib.pyplot as plt
 import seaborn as sns
 import config  # Import the config file
 import PreProc_Function as ppf
 from imblearn.over_sampling import SMOTE
+from AE_Aux_Func import reduce_dimensions, plot_reduced_data, plot_metrics_vs_threshold, find_optimal_threshold_f1, save_metrics_to_csv
 
 # For Future Use
 #from sklearn.feature_selection import SelectKBest, f_classif
@@ -335,10 +336,20 @@ X_train_complete, X_test_good, y_train_complete, y_test_good  = train_test_split
 
 X_train, X_val_good, y_train, y_val_good = train_test_split(X_train_complete, y_train_complete, test_size=0.1, random_state=45)
 
-X_val_damaged, X_test_damaged, y_val_damaged, y_test_damaged = train_test_split(damaged_bearing_samples, damaged_bearing_labels, test_size=0.2, random_state=51)
+#print(X_val_good.head(10))
+#print(y_val_good.head(10))
+#print(X_val_good.tail(10))
+#print(y_val_good.tail(10))
 
-X_test = pd.concat([X_test_good, X_test_damaged.iloc[:len(X_test_good)]])
-y_test = pd.concat([y_test_good, y_test_damaged.iloc[:len(y_test_good)]])
+X_val_damaged_complete, X_test_damaged, y_val_damaged_complete, y_test_damaged = train_test_split(damaged_bearing_samples, damaged_bearing_labels, test_size=0.5, random_state=51)
+
+val_size = min(len(X_val_good), len(X_val_damaged_complete))
+
+X_val_damaged = X_val_damaged_complete.iloc[:val_size]
+y_val_damaged = y_val_damaged_complete.iloc[:val_size]
+
+X_test = pd.concat([X_test_good, X_test_damaged.iloc[:len(X_test_good)], X_val_damaged.iloc[val_size:]])
+y_test = pd.concat([y_test_good, y_test_damaged.iloc[:len(y_test_good)], y_val_damaged.iloc[val_size:]])
 
 input_shape = X_train.shape[1]
 
@@ -356,7 +367,7 @@ early_stopping = EarlyStopping(monitor='val_loss', mode='min', patience=50, rest
 loaded_model = load_model(model_save_path)
 
 # Freeze encoder layers
-for layer in loaded_model.layers[:-2]:  # Assuming the last two layers are decoder and output
+for layer in loaded_model.layers[:-6]:
     layer.trainable = False
     
 # Compile the model
@@ -374,4 +385,188 @@ plt.title('Model Loss')
 plt.ylabel('Loss')
 plt.xlabel('Epoch')
 plt.legend(loc='upper right')
-plt.show()     
+plt.show() 
+
+
+loaded_model.summary()
+
+# Reconstruction and threshold finding
+start_time = time.time()
+val_predictions_good = loaded_model.predict(X_val_good)
+inference_time = time.time() - start_time
+
+# Get the reconstruction error on the validation set
+val_errors_good = np.mean(np.square(X_val_good - val_predictions_good), axis=1)
+
+# Get the reconstruction error on the labeled validation anomalies
+val_predictions_damaged = loaded_model.predict(X_val_damaged)
+val_errors_damaged = np.mean(np.square(X_val_damaged - val_predictions_damaged), axis=1)
+
+print("Validation Errors lenght:")
+print(len(val_errors_good))
+print(len(val_errors_damaged))
+
+# Plotting KDEs of reconstruction errors
+plt.figure(figsize=(10, 6))
+
+# Healthy errors
+sns.kdeplot(val_errors_good, label="Healthy", fill=True, color='green', alpha=0.6)
+
+# Damaged errors
+sns.kdeplot(val_errors_damaged, label="Damaged", fill=True, color='red', alpha=0.6)
+
+plt.xlabel("Reconstruction Error")
+plt.ylabel("Density")
+plt.title("Reconstruction Error Distribution")
+plt.legend()
+plt.show()
+
+# Combine validation errors and bearing validation errors
+combined_val_errors = np.concatenate([val_errors_damaged, val_errors_good])
+combined_val_labels = np.concatenate([y_val_damaged, y_val_good])
+
+'''# Calculate precision, recall, and thresholds
+precision, recall, thresholds = precision_recall_curve(combined_val_labels, combined_val_errors)
+
+# Calculate the absolute difference between precision and recall
+diff = abs(precision - recall)
+
+# Find the index of the minimum difference
+optimal_idx = np.argmin(diff)   
+
+# Get the optimal threshold
+optimal_threshold = thresholds[optimal_idx]'''
+
+# Calculate ROC curve
+fpr, tpr, thresholds = roc_curve(combined_val_labels, combined_val_errors)
+
+# Find the optimal threshold
+optimal_idx = np.argmax(tpr - fpr)  # This gives you the threshold with the maximum difference between TPR and FPR
+optimal_threshold = thresholds[optimal_idx]
+
+# Final evaluation on the test set
+test_predictions_good = loaded_model.predict(X_test_good)
+test_errors_good = np.mean(np.square(X_test_good - test_predictions_good), axis=1)
+
+# Final evaluation on the test set
+test_predictions_damaged = loaded_model.predict(X_test_damaged)
+test_errors_damaged = np.mean(np.square(X_test_damaged - test_predictions_damaged), axis=1)
+
+# Combine the noise and bearing errors
+combined_test_errors = np.concatenate([test_errors_damaged, test_errors_good])
+combined_test_labels = np.concatenate([y_test_damaged, y_test_good])
+
+optimal_threshold = 0.3
+
+# Determine which samples are anomalies based on the optimal threshold
+test_anomalies = combined_test_errors > optimal_threshold
+
+# Calculate and print the final detection metrics
+predicted_labels = test_anomalies.astype(int)
+
+print(classification_report(combined_test_labels, predicted_labels, target_names=["Noise", "Anomaly"]))
+
+rec_error_good_avg = np.mean(test_errors_good)
+rec_error_damaged_avg = np.mean(test_errors_damaged)
+rec_error_good_std = np.std(test_errors_good)
+rec_error_damaged_std = np.std(test_errors_damaged)
+
+print("Reconstruction Errors:")
+print("Average Reconstruction Error for Validation Data (only noise):")
+print(f'Mean Reconstruction Error: {rec_error_good_avg}')
+print(f'Standard Deviation of Reconstruction Error: {rec_error_good_std}')
+print("Average Reconstruction Error for Validation Data (only bearings):")
+print(f'Mean Reconstruction Error: {rec_error_damaged_avg}')
+print(f'Standard Deviation of Reconstruction Error: {rec_error_damaged_std}')
+print("\n")
+
+acc = accuracy_score(combined_test_labels, predicted_labels)
+prec = precision_score(combined_test_labels, predicted_labels)
+rec = recall_score(combined_test_labels, predicted_labels)
+f1 = f1_score(combined_test_labels, predicted_labels)
+auc = roc_auc_score(combined_test_labels, predicted_labels)
+inf_time = inference_time / len(X_val_good) * 1000
+#proc_time = pre_proc_time / (len(y_train) + len(y_val)) * 1000
+
+# Global Evaluation
+print("Evaluation:")
+print(f"Optimal Threshold: {optimal_threshold}")  
+print(f"Accuracy: {acc:.3f}")
+print(f"Precision: {prec:.3f}")
+print(f"Recall: {rec:.3f}")
+print(f"F1 Score: {f1:.3f}")
+print(f"AUC: {auc:.3f}")
+print(f"Average Inference Time per Sample: {inf_time:.3f} ms")
+#print(f"Average Preprocessing Time per Sample: {proc_time:.3f} ms")
+
+# Calculate the confusion matrix
+cm = confusion_matrix(combined_test_labels, predicted_labels)
+
+# Normalize the confusion matrix to percentages
+cm_percentage = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis] * 100
+
+# Create annotations with both percentage and absolute values
+annotations = np.empty_like(cm).astype(str)
+for i in range(cm.shape[0]):
+    for j in range(cm.shape[1]):
+        annotations[i, j] = f'{cm_percentage[i, j]:.1f}% ({cm[i, j]})'
+
+# Plot the confusion matrix with both percentages and absolute values
+plt.figure(figsize=(8, 6))
+sns.heatmap(cm_percentage, annot=annotations, fmt='', cmap='Blues', cbar=False,
+            xticklabels=['Healthy', 'Damaged'],
+            yticklabels=['Healthy', 'Damaged'])
+
+plt.xlabel('Predicted Label')
+plt.ylabel('True Label')
+plt.title('Confusion Matrix (Percentage and Count)')
+plt.show()
+
+# Thresholds vs metrics for validation data
+thresholds = np.linspace(min(combined_val_errors), max(combined_val_errors), 100)
+f1_scores_val = []
+precisions_val = []
+recalls_val = []
+accuracy_val = []
+roc_aucs_val = []
+
+for threshold in thresholds:
+    y_val_pred = (combined_val_errors > threshold).astype(int)  # Assuming combined_val_errors is for validation
+    f1_scores_val.append(f1_score(combined_val_labels, y_val_pred))
+    accuracy_val.append(accuracy_score(combined_val_labels, y_val_pred))
+    precisions_val.append(precision_score(combined_val_labels, y_val_pred, zero_division=0))
+    recalls_val.append(recall_score(combined_val_labels, y_val_pred))
+    roc_aucs_val.append(roc_auc_score(combined_val_labels, combined_val_errors))
+
+# Thresholds vs metrics for test data
+f1_scores_test = []
+precisions_test = []
+recalls_test = []
+accuracy_test = []
+roc_aucs_test = []
+
+for threshold in thresholds:
+    y_test_pred = (combined_test_errors > threshold).astype(int)
+    f1_scores_test.append(f1_score(combined_test_labels, y_test_pred))
+    accuracy_test.append(accuracy_score(combined_test_labels, y_test_pred))
+    precisions_test.append(precision_score(combined_test_labels, y_test_pred, zero_division=0))
+    recalls_test.append(recall_score(combined_test_labels, y_test_pred))
+    roc_aucs_test.append(roc_auc_score(combined_test_labels, combined_test_errors))
+
+# Plot metrics vs threshold
+plot_metrics_vs_threshold(
+    thresholds, 
+    optimal_threshold, 
+    f1_scores_test=f1_scores_test, 
+    accuracy_test=accuracy_test, 
+    precisions_test=precisions_test, 
+    recalls_test=recalls_test, 
+    roc_aucs_test=roc_aucs_test,
+    f1_scores_val=f1_scores_val, 
+    accuracy_val=accuracy_val, 
+    precisions_val=precisions_val, 
+    recalls_val=recalls_val, 
+    roc_aucs_val=roc_aucs_val
+)
+
+

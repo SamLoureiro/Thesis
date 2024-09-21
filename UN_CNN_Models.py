@@ -693,50 +693,66 @@ def vdae_model_builder(input_shape, latent_dim):
     return model
 
 class DENSE:
-    def __init__(self, input_dim):
+    def __init__(
+        self, 
+        input_dim, 
+        noise_factor=0.1,
+        units_1=256, 
+        dropout_1=0.2, 
+        units_2=128, 
+        dropout_2=0.2, 
+        units_3=64, 
+        bottleneck_units=16, 
+        dropout_3=0.2, 
+        dropout_4=0.2, 
+        l1=1e-4, 
+        l2=1e-4,
+        learning_rate=0.001
+    ):
         self.input_dim = input_dim
+        self.noise_factor = noise_factor
+        self.units_1 = units_1
+        self.dropout_1 = dropout_1
+        self.units_2 = units_2
+        self.dropout_2 = dropout_2
+        self.units_3 = units_3
+        self.bottleneck_units = bottleneck_units
+        self.dropout_3 = dropout_3
+        self.dropout_4 = dropout_4
+        self.l1 = l1
+        self.l2 = l2
+        self.learning_rate = learning_rate
 
     def build(self):
 
-        noise_factor = 0.1
-        units_1 = 256
-        dropout_1 = 0.2
-        units_2 = 128
-        dropout_2 = 0.2
-        units_3 = 64
-        bottleneck_units = 16
-        dropout_3 = 0.2
-        dropout_4 = 0.2
-
         input_layer = Input(shape=(self.input_dim,))
-        noisy_inputs = Lambda(lambda x: x + noise_factor * tf.random.normal(tf.shape(x)))(input_layer)
-        #noisy_inputs = GaussianNoise(noise_factor)(input_layer)
+        noisy_inputs = GaussianNoise(self.noise_factor)(input_layer)
 
         
         # Encoder
-        encoded = Dense(units_1, activation='relu', kernel_regularizer=regularizers.L1L2(l1=1e-4, l2=1e-4))(noisy_inputs)
+        encoded = Dense(self.units_1, activation='relu', kernel_regularizer=regularizers.L1L2(l1=self.l1, l2=self.l2))(noisy_inputs)
         #encoded = LeakyReLU(negative_slope=0.1)(encoded)
         encoded = BatchNormalization()(encoded)
-        encoded = Dropout(dropout_1)(encoded)
-        encoded = Dense(units_2, activation='relu', kernel_regularizer=regularizers.L1L2(l1=1e-4, l2=1e-4))(encoded)
+        encoded = Dropout(self.dropout_1)(encoded)
+        encoded = Dense(self.units_2, activation='relu', kernel_regularizer=regularizers.L1L2(l1=self.l1, l2=self.l2))(encoded)
         encoded = BatchNormalization()(encoded)
-        encoded = Dropout(dropout_2)(encoded)
-        encoded = Dense(units_3, activation='relu', kernel_regularizer=regularizers.L1L2(l1=1e-4, l2=1e-4))(encoded)
+        encoded = Dropout(self.dropout_2)(encoded)
+        encoded = Dense(self.units_3, activation='relu', kernel_regularizer=regularizers.L1L2(l1=self.l1, l2=self.l2))(encoded)
         
         # Bottleneck
-        bottleneck = Dense(bottleneck_units, activation='relu')(encoded)
+        bottleneck = Dense(self.bottleneck_units, activation='relu')(encoded)
 
         # Decoder
-        decoded = Dense(units_3, activation='relu')(bottleneck)
+        decoded = Dense(self.units_3, activation='relu')(bottleneck)
         decoded = BatchNormalization()(decoded)
-        decoded = Dropout(dropout_3)(decoded)
-        decoded = Dense(units_2, activation='relu')(decoded)
+        decoded = Dropout(self.dropout_3)(decoded)
+        decoded = Dense(self.units_2, activation='relu')(decoded)
         decoded = BatchNormalization()(decoded)
-        decoded = Dropout(dropout_4)(decoded)
-        decoded = Dense(units_1, activation='relu')(decoded)
+        decoded = Dropout(self.dropout_4)(decoded)
+        decoded = Dense(self.units_1, activation='relu')(decoded)
         decoded = Dense(self.input_dim, activation='sigmoid')(decoded)
         #encoded = LeakyReLU(negative_slope=0.1)(encoded)
         
         autoencoder = Model(input_layer, decoded)
-        autoencoder.compile(optimizer='adam', loss='mse')        
+        autoencoder.compile(optimizer=Adam(learning_rate=self.learning_rate), loss='mse')        
         return autoencoder

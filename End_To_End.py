@@ -163,20 +163,8 @@ def main():
     #print(features.tail(10))
     
     # Convert labels to a DataFrame
-    labels = pd.DataFrame(labels_np, columns=["label"])
-    
-    print('Labels:')
-    print(labels.index[labels['label'] == 0])
-    
-    print(labels.index[labels['label'] != 0])
-    
-    print(labels.index[labels['label'] == 1])
-    
-    print(labels.index[labels['label'] == 2])
-    
-    #print(labels.head(10))
-    #print(labels.tail(10))
-    
+    labels = pd.DataFrame(labels_np, columns=["label"])    
+   
     # Until here, the data is correct and the code is working fine
 
     indices = labels.index[labels['label'] == 0]
@@ -221,13 +209,13 @@ def main():
     # Balance the test set sizes
     test_size = min(len(bearings_test_labels_complete), len(X_test_complete))
 
-    X_test = X_test_complete.iloc[:test_size]
-    y_test = y_test_complete.iloc[:test_size]
+    X_test = X_test_complete#.iloc[:test_size]
+    y_test = y_test_complete#.iloc[:test_size]
 
     bearings_val = bearings_val_complete.iloc[:val_size]
-    bearings_test = bearings_test_complete.iloc[:test_size]
+    bearings_test = bearings_test_complete#.iloc[:test_size]
     bearings_val_labels = bearings_val_labels_complete.iloc[:val_size]
-    bearings_test_labels = bearings_test_labels_complete.iloc[:test_size]
+    bearings_test_labels = bearings_test_labels_complete#.iloc[:test_size]
     
     # Remaining bearing samples for final evaluation
     only_bearings_eval = pd.concat([bearings_val_complete.iloc[val_size:], bearings_test_complete.iloc[test_size:]])
@@ -288,14 +276,24 @@ def main():
 
     cm = confusion_matrix(combined_test_labels_ae, predicted_labels)
     
-    # Plot confusion matrix
+    # Normalize the confusion matrix to percentages
+    cm_percentage = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis] * 100
+
+    # Create annotations with both percentage and absolute values
+    annotations = np.empty_like(cm).astype(str)
+    for i in range(cm.shape[0]):
+        for j in range(cm.shape[1]):
+            annotations[i, j] = f'{cm_percentage[i, j]:.1f}% ({cm[i, j]})'
+
+    # Plot the confusion matrix with both percentages and absolute values
     plt.figure(figsize=(8, 6))
-    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', cbar=False,
-                xticklabels=['Noise', 'Bearing'],
-                yticklabels=['Noise', 'Bearing'])
+    sns.heatmap(cm_percentage, annot=annotations, fmt='', cmap='Blues', cbar=False,
+                xticklabels=['Healthy', 'Damaged'],
+                yticklabels=['Healthy', 'Damaged'])
+
     plt.xlabel('Predicted Label')
     plt.ylabel('True Label')
-    plt.title('Confusion Matrix (Noise vs Bearing)')
+    plt.title('Confusion Matrix (Percentage and Count)')
     plt.show()
 
     
@@ -304,8 +302,8 @@ def main():
     
     # Yggdrasil GBDT Model -> Distinguish between good and damaged bearings
     
-    model_string = 'RF'
-    gbdt_save_path = os.path.join(current_dir, 'DTs_Models', 'RF', 'rf_stft')
+    model_string = 'GBDT'
+    gbdt_save_path = os.path.join(current_dir, 'DTs_Models', model_string, model_string.lower() + '_stft')
     
     ygg = ydf.load_model(gbdt_save_path)
     
@@ -331,14 +329,23 @@ def main():
     # Create confusion matrix with 3 rows (true labels) and 2 columns (predicted labels)
     cm = confusion_matrix(X_test_bearing_labels, pred_bearing_faults, labels=[0, 1, 2])[:, 1:]
 
-    # Plot confusion matrix
+    # Normalize the confusion matrix to percentages
+    cm_percentage = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis] * 100
+
+    # Create annotations with both percentage and absolute values
+    annotations = np.empty_like(cm).astype(str)
+    for i in range(cm.shape[0]):
+        for j in range(cm.shape[1]):
+            annotations[i, j] = f'{cm_percentage[i, j]:.1f}% ({cm[i, j]})'
+
+    # Plot the confusion matrix with both percentages and absolute values
     plt.figure(figsize=(8, 6))
-    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', cbar=False,
+    sns.heatmap(cm_percentage, annot=annotations, fmt='', cmap='Blues', cbar=False,
                 xticklabels=['Healthy Bearing', 'Damaged Bearing'],  # 2 predicted labels
                 yticklabels=['Noise', 'Healthy Bearing', 'Damaged Bearing'])  # 3 true labels
     plt.xlabel('Predicted Label')
     plt.ylabel('True Label')
-    plt.title('Confusion Matrix (Noise vs Healthy Bearing vs Damaged Bearing)')
+    plt.title('Confusion Matrix (Percentage and Count)')
     plt.show()
     
     # Combine the true labels and predicted probabilities into a DataFrame
@@ -350,27 +357,37 @@ def main():
     # Map the true labels to their corresponding names for better visualization
     probs_df['Label Name'] = probs_df['True Label'].map({0: 'Noise', 1: 'Healthy Bearing', 2: 'Damaged Bearing'})
 
-    # Plot the probability distribution for each label
+    # Set up the figure
     plt.figure(figsize=(12, 6))
 
-    # Plot histograms with KDE for each label
-    sns.histplot(data=probs_df, x='Predicted Probability', hue='Label Name', kde=False, bins=30, palette='Set2', alpha=0.4)
+    # Define a custom color palette with bluish, greenish, and reddish colors
+    palette = ['#8da0cb', '#66c2a5', '#fc8d62']                                 # Colors: bluish for Noise, greenish for Healthy, reddish for Damaged
+    label_names = ['Noise', 'Healthy Bearing', 'Damaged Bearing']
+    color_map = dict(zip(label_names, palette))
 
-    # Plot KDE plots separately to add curve labels
-    for label, color in zip(['Noise', 'Healthy Bearing', 'Damaged Bearing'], sns.color_palette('Set2', 3)):
+    # Plot histograms with KDE disabled for better control over KDE plots
+    sns.histplot(data=probs_df, x='Predicted Probability', hue='Label Name', kde=False, bins=50, palette=color_map, alpha=0.4)
+
+    # Plot KDE curves separately for each label to ensure correct color and labeling
+    for label in label_names:
         sns.kdeplot(
             data=probs_df[probs_df['Label Name'] == label],
             x='Predicted Probability',
-            color=color,
-            label=label
+            color=color_map[label],
+            label=f'{label} Curve',
+            linewidth=2
         )
 
+    # Customize the plot
     plt.xlabel('Predicted Probability')
     plt.ylabel('Density')
     plt.title('Probability Distribution for Each Label')
-    plt.axvline(threshold, color='red', linestyle='--', label='Decision Threshold (0.5)')
-    plt.legend(title='True Label')
+    plt.axvline(threshold, color='red', linestyle='--', label='Decision Threshold' + f' ({threshold:.2f})')
+
+    # Place the legend inside the plot in the upper right
+    plt.legend(title='True Label', loc='upper right')
     plt.show()
+
     
 if __name__ == "__main__":
     main()
