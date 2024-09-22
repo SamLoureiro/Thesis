@@ -5,7 +5,7 @@ import pandas as pd
 from sklearn.preprocessing import StandardScaler
 import ydf
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import precision_score, recall_score, f1_score, accuracy_score, classification_report, confusion_matrix
+from sklearn.metrics import precision_score, recall_score, f1_score, accuracy_score, classification_report, confusion_matrix, roc_auc_score
 import matplotlib.pyplot as plt
 import seaborn as sns
 import config  # Import the config file
@@ -64,12 +64,57 @@ def perform_evaluation_and_prediction(model, X_test, Folder, model_string, all_d
     
     # Convert labels to numpy array 
     y_test = X_test['label'].values
+    
+    # Assuming y_pred_probs contains probabilities of being "Damaged Bearing"
+    # 0 = Healthy Bearing, 1 = Damaged Bearing
+
+    # Combine the true labels and predicted probabilities into a DataFrame
+    probs_df = pd.DataFrame({
+        'True Label': y_test.flatten(),  # Assuming y_test is the true binary labels array
+        'Predicted Probability': y_pred_probs.flatten()
+    })
+
+    # Map the true labels to their corresponding names for better visualization
+    probs_df['Label Name'] = probs_df['True Label'].map({0: 'Healthy Bearing', 1: 'Damaged Bearing'})
+
+    # Set up the figure
+    plt.figure(figsize=(12, 6))
+
+    # Define a custom color palette with greenish for Healthy and reddish for Damaged
+    palette = ['#66c2a5', '#fc8d62']  # Colors: greenish for Healthy, reddish for Damaged
+    label_names = ['Healthy Bearing', 'Damaged Bearing']
+    color_map = dict(zip(label_names, palette))
+
+    # Plot histograms with KDE disabled for better control over KDE plots
+    sns.histplot(data=probs_df, x='Predicted Probability', hue='Label Name', kde=False, bins=50, palette=color_map, alpha=0.4)
+
+    # Plot KDE curves separately for each label to ensure correct color and labeling
+    for label in label_names:
+        sns.kdeplot(
+            data=probs_df[probs_df['Label Name'] == label],
+            x='Predicted Probability',
+            color=color_map[label],
+            label=f'{label} Curve',
+            linewidth=2
+        )
+
+    # Customize the plot
+    plt.xlabel('Predicted Probability')
+    plt.ylabel('Density')
+    plt.title('Probability Distribution for Healthy vs. Damaged Bearings')
+    plt.axvline(0.5, color='red', linestyle='--', label='Decision Threshold (0.50)')
+
+    # Place the legend inside the plot in the upper right
+    plt.legend(title='True Label', loc='upper right')
+    plt.show()
+
 
     # Calculate additional metrics
     precision = precision_score(y_test, y_pred)
     recall = recall_score(y_test, y_pred)
     f1 = f1_score(y_test, y_pred)
     accuracy = accuracy_score(y_test, y_pred)
+    roc_auc = roc_auc_score(y_test, y_pred_probs)
 
     # Count the number of good and damaged bearings in the test set
     unique, counts = np.unique(y_test, return_counts=True)
@@ -96,6 +141,9 @@ def perform_evaluation_and_prediction(model, X_test, Folder, model_string, all_d
     print(f"Recall: {recall:.4f}")
     print(f"F1 Score: {f1:.4f}")
     print(f"Accuracy: {accuracy:.4f}")
+    print(f"ROC AUC: {roc_auc:.4f}")
+    
+    print("\n")
 
     # Classification report
     print("Classification Report:")
@@ -126,9 +174,9 @@ def perform_evaluation_and_prediction(model, X_test, Folder, model_string, all_d
 
     # Gather all metrics
     metrics_dict = {
-        'Metric': ['Precision', 'Recall', 'F1 Score', 'Accuracy', 'Loss',
+        'Metric': ['Precision', 'Recall', 'F1 Score', 'Accuracy', 'ROC AUC', 'Loss',
                 'Average Pre-processing Time','Average Inference Time'],
-        'Value': [precision, recall, f1, accuracy, test_loss,
+        'Value': [precision, recall, f1, accuracy, roc_auc,test_loss,
                 average_pre_proc_time, average_inference_time]
     }
     # Save Metrics
@@ -153,6 +201,8 @@ def perform_evaluation_and_prediction(model, X_test, Folder, model_string, all_d
     
     # Convert labels to numpy array 
     y = all_data['label'].values
+    
+    print("\n")
     
     # Classification report
     print("Classification Report with all the data (train and test):")
