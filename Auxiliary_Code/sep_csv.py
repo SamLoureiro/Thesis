@@ -3,12 +3,12 @@ import os
 
 # Get the current directory and define the input name
 current_dir = os.getcwd()
-input_name = 'acel_liso_4'
-raw_data = os.path.join(current_dir, 'Dataset_Piso', 'LISO', 'RAW')
+input_name = 'goodx2_accel_0'
+raw_data = os.path.join(current_dir, 'Dataset_Bearings', 'NEW_AMR', 'RAW')
 
 # Define the input and output file paths
 input_file = os.path.join(raw_data, input_name + ".csv")
-output_directory = os.path.join(current_dir, 'Dataset_Augmented', 'smooth_floor', 'ACCEL')
+output_directory = os.path.join(current_dir, 'Dataset_Bearings', 'NEW_AMR', 'GOOD', 'ACCEL')
 
 # Create the output directory if it doesn't exist
 os.makedirs(output_directory, exist_ok=True)

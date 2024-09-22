@@ -745,7 +745,7 @@ class DENSE_TUNING(HyperModel):
         decoded = BatchNormalization()(decoded)
         decoded = Dropout(dropout_4)(decoded)
         decoded = Dense(units_1, activation='relu', kernel_regularizer=l1_l2_reg)(decoded)
-        decoded = Dense(self.input_dim, activation='sigmoid')(decoded)
+        decoded = Dense(self.input_shape, activation='sigmoid')(decoded)
         
         autoencoder = Model(input_layer, decoded)
         autoencoder.compile(optimizer=Adam(learning_rate=learning_rate),

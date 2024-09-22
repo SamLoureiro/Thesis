@@ -44,18 +44,20 @@ def split_wav_file(input_file, output_directory, input_name, sample_duration=1, 
 
 # Get the current directory and define the input name
 current_dir = os.getcwd()
-input_name = 'LISO_4'
-raw_data = os.path.join(current_dir, 'Dataset_Piso', 'LISO', 'RAW')
+input_name = 'goodx2_audio_0'
+raw_data = os.path.join(current_dir, 'Dataset_Bearings', 'NEW_AMR', 'RAW')
+
+overlapping_factor = 0.5
 
 # Define the input and output file paths
 input_file = os.path.join(raw_data, input_name + ".WAV")
-output_directory = os.path.join(current_dir, 'Dataset_Augmented', 'smooth_floor', 'AUDIO')
+output_directory = os.path.join(current_dir, 'Dataset_Bearings', 'NEW_AMR', 'GOOD', 'AUDIO')
 
 # Check if output_directory exists, create it if not
 if not os.path.exists(output_directory):
     os.makedirs(output_directory)
 
 # Split the WAV file with a sample duration of 1 second and 50% overlap
-split_wav_file(input_file, output_directory, input_name, sample_duration=1, overlap_factor=0.5)
+split_wav_file(input_file, output_directory, input_name, sample_duration=1, overlap_factor=overlapping_factor)
 
 print("Sample files have been created successfully.")

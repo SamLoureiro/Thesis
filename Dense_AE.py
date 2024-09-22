@@ -240,16 +240,11 @@ def main():
 
     input_shape = X_train.shape[1]
     
-    #print("First sample in the training set:")
-    #print(X_train[0])
-    
-    #print("Number of NaN is dataset ", np.count_nonzero(np.isnan(input_shape)))
-    
     print(f"Input shape: {input_shape}")
     
     # Epochs and batch size
     epochs = 300
-    batch_size = 512
+    batch_size = 128
     
     # Only for VDAE
     latent_dim = 32
@@ -266,19 +261,19 @@ def main():
     else:
         model_string = model
         
-    metrics_file_name = f"{model_string}_{pre_proc_string}_bs_'{batch_size}_results.csv"
-    output_dir_metrics = os.path.join(current_dir, 'AE_Results', 'NEW_AMR')
-       
-    model_name = f"{model_string}_{pre_proc_string}_bs_'{batch_size}.keras"
-    save_parameters_name = f"{model_string}_{pre_proc_string}_bs_'{batch_size}_parameters.json"        
-
+    # ' before batch size is used to identify models with costumized hyperparameters        
+    model_name = f"{model_string}_{pre_proc_string}_bs_{batch_size}.keras"
+    save_parameters_name = f"{model_string}_{pre_proc_string}_bs_{batch_size}_parameters.json"        
+    metrics_file_name = f"{model_string}_{pre_proc_string}_bs_{batch_size}_results.csv"
     
+    output_dir_metrics = os.path.join(current_dir, 'AE_Results', 'NEW_AMR')
+    model_save_path = os.path.join(current_dir, 'AE_Models', 'NEW_AMR', model_name)
+        
     # For Bayesian tuning
     model_save_path_tuner = os.path.join(current_dir, 'AE_Models', 'NEW_AMR', 'Bayesian', model_name) 
     parameters_save_path = os.path.join(current_dir, 'AE_Models', 'NEW_AMR', 'Bayesian', save_parameters_name)
-    tuner_dir = os.path.join(current_dir, 'Bayesian_Tuning', 'NEW_AMR', 'AE_DENSE')
-    
-    model_save_path = os.path.join(current_dir, 'AE_Models', 'NEW_AMR', model_name) 
+    output_dir_metrics_tuner = os.path.join(current_dir, 'AE_Models', 'NEW_AMR', 'Bayesian') 
+    tuner_dir = os.path.join(current_dir, 'Bayesian_Tuning', 'NEW_AMR', 'AE_DENSE')    
     
     # Early stopping setup
     early_stopping = EarlyStopping(monitor='val_loss', mode='min', patience=50, restore_best_weights=True, verbose=2)
@@ -288,11 +283,11 @@ def main():
     ## For Hypertuning, uncomment the following block and comment the block below it
     ## For training and testing the model with default parameters, comment the following block
 
-
-    '''
+    tuning = True
+    
     # Define the BayesianOptimization tuner
     tuner = BayesianOptimization(
-        hypermodel=DENSE(input_shape),
+        hypermodel=DENSE_TUNING(input_shape),
         objective='val_loss',
         max_trials=20,
         executions_per_trial=2,
@@ -300,8 +295,8 @@ def main():
         project_name=project_name
     )
     
-    tuner_hyper = Hyperband(
-        hypermodel=DENSE(input_shape),
+    '''tuner_hyper = Hyperband(
+        hypermodel=DENSE_TUNING(input_shape),
         objective=Objective("val_loss", direction="min"),
         #max_trials=10,
         #executions_per_trial=2,
@@ -309,7 +304,7 @@ def main():
         factor=3,
         directory=tuner_dir,
         project_name=project_name
-    )
+    )'''
 
     try:
         # Attempt to load the best model        
@@ -341,7 +336,7 @@ def main():
             
         except IndexError:
             print("Search completed, but no best model was found.")
-            exit(1)'''
+            exit(1)
             
     ######################################################################################################################
     
@@ -351,12 +346,15 @@ def main():
     ## For training and testing the model with default parameters, uncomment the following block and comment the block above it
     ## You can also use this block for hyperparameter tuning, but you will have to manually set the hyperparameters
     ## For automatic hyperparameter tuning, comment the following block
+    '''
+    tuning = False  
     
     if(config.model_load and os.path.exists(model_save_path)):
         autoencoder = load_model(model_save_path)
     
     else:
         autoencoder = DENSE(
+                    # Hyperparameters from Bayesian Optimization with STFT features
                     input_dim=input_shape,                       # Replace with your actual input dimension
                     noise_factor=0.1,                            # Custom noise factor
                     units_1=352,                                 # Custom number of units for first dense layer
@@ -385,7 +383,7 @@ def main():
         plt.xlabel('Epoch')
         plt.legend(loc='upper right')
         plt.show()      
-
+        '''
     ######################################################################################################################
     
     autoencoder.summary()
@@ -489,7 +487,10 @@ def main():
     print(f"Average Preprocessing Time per Sample: {proc_time:.3f} ms")   
     
     if config.save_metrics:
-        save_metrics_to_csv(output_dir_metrics, metrics_file_name, prec, rec, f1, acc, auc, optimal_threshold, rec_error_noise_avg, rec_error_bearing_avg, rec_error_noise_std, rec_error_bearing_std, inf_time, proc_time)
+        if tuning:
+            save_metrics_to_csv(output_dir_metrics_tuner, metrics_file_name, prec, rec, f1, acc, auc, optimal_threshold, rec_error_noise_avg, rec_error_bearing_avg, rec_error_noise_std, rec_error_bearing_std, inf_time, proc_time)
+        else:
+            save_metrics_to_csv(output_dir_metrics, metrics_file_name, prec, rec, f1, acc, auc, optimal_threshold, rec_error_noise_avg, rec_error_bearing_avg, rec_error_noise_std, rec_error_bearing_std, inf_time, proc_time)
 
     # Count the number of noise samples and bearings samples in the test set
     unique, counts = np.unique(combined_test_labels, return_counts=True)
@@ -540,7 +541,7 @@ def main():
     roc_aucs_val = []
 
     for threshold in thresholds:
-        y_val_pred = (combined_val_errors > threshold).astype(int)  # Assuming combined_val_errors is for validation
+        y_val_pred = (combined_val_errors > threshold).astype(int)      # Assuming combined_val_errors is for validation
         f1_scores_val.append(f1_score(combined_val_labels, y_val_pred))
         accuracy_val.append(accuracy_score(combined_val_labels, y_val_pred))
         precisions_val.append(precision_score(combined_val_labels, y_val_pred, zero_division=0))
