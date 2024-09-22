@@ -125,7 +125,7 @@ def perform_evaluation_and_prediction(model, X_test, Folder, model_string, all_d
 
     # Print the inference time
     pre_proc_time = end_time_pre_proc - start_time_pre_proc
-    average_pre_proc_time = pre_proc_time / len(combined_features)
+    average_pre_proc_time = pre_proc_time / len(features_df)
     inference_time = end_time_test_set - start_time_test_set
     average_inference_time = inference_time / len(y_test)
     print("\n")
@@ -225,7 +225,7 @@ def perform_evaluation_and_prediction(model, X_test, Folder, model_string, all_d
 
 # Define directories
 current_dir = os.getcwd()
-
+'''
 good_bearing_dir_audio_m = os.path.join(current_dir, 'Dataset_Bearings', 'AMR_MOVEMENT', 'GOOD', 'AUDIO')
 damaged_bearing_dir_audio_m = os.path.join(current_dir, 'Dataset_Bearings', 'AMR_MOVEMENT', 'DAMAGED', 'AUDIO')
 good_bearing_dir_acel_m = os.path.join(current_dir, 'Dataset_Bearings', 'AMR_MOVEMENT', 'GOOD', 'ACEL')
@@ -366,12 +366,22 @@ combined_features_normalized = scaler.fit_transform(combined_features_df)
 
 # Convert labels to numpy array
 y = np.array(labels)
+'''
+
+# Create a string based on the methods that are on
+methods_string = "_".join(method for method, value in config.preprocessing_options.items() if value)
+start_time_pre_proc = 1
+end_time_pre_proc = 1
+features_df = pd.read_csv('features_nr.csv')
+labels_df = pd.read_csv('labels.csv')
 
 # Convert features to a DataFrame
-features_df = pd.DataFrame(combined_features_normalized, columns=combined_features_df.columns)
+#features_df = pd.DataFrame(combined_features_normalized, columns=combined_features_df.columns)
+#features_df.to_csv('features_nr.csv', index=False)
 
 # Convert labels to a DataFrame
-labels_df = pd.DataFrame(y, columns=["label"])
+#labels_df = pd.DataFrame(y, columns=["label"])
+#labels_df.to_csv('labels.csv', index=False)
 
 # Oversampling the train dataset using SMOTE
 smt = SMOTE()
