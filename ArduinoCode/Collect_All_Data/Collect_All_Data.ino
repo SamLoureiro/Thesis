@@ -1,5 +1,6 @@
 #include <Adafruit_MPU6050.h>
 #include <Adafruit_Sensor.h>
+#include <MQUnifiedsensor.h>
 #include <Wire.h>
 #include <SD.h>
 #include <SPI.h>
@@ -8,7 +9,7 @@
 #include <SerialFlash.h>
 #include "setI2SFreq.h"
 #include <string.h>
-
+#include <GP2YDustSensor.h>
 
 Bounce2::Button Noisebutton = Bounce2::Button();
 Bounce2::Button Damagedbutton = Bounce2::Button();
@@ -37,14 +38,24 @@ File acelFile, errorFile, audio_data, wavFile;
 #define BUILTIN_PIN         13         // Built In LED pin
 #define ERROR_PIN           33         // Built In LED pin
 #define TEMP_PIN            A12        // Temperature Sensor Analog Pin
-#define DUST_PIN            27
-#define GAS_PIN             41 
+#define DUST_PIN            39
 
 // Constants
 #define CONVERT_G_TO_MS2    9.80665f                  // Used to convert G to m/s^2
 #define SAMPLING_FREQ_HZ    50                        // Sampling frequency (Hz)
 #define SAMPLING_PERIOD_MS  (1000 / SAMPLING_FREQ_HZ) // Sampling period (ms)
 #define BUFFER_SIZE 100                               // Number of lines to accumulate before writing to SD
+
+
+//Definitions for Gas Sensor and Sensor Declaration
+#define placa "Teensy"
+#define Voltage_Resolution 3.3
+#define MQ2pin 38 //Analog input 4 of your arduino
+#define type "MQ-2" //MQ2
+#define ADC_Bit_Resolution 10 // For arduino UNO/MEGA/NANO
+#define RatioMQ2CleanAir 4.4  //RS / R0 = 4.4 ppm 
+//MQUnifiedsensor MQ2(placa, Voltage_Resolution, ADC_Bit_Resolution, MQ2pin, type);
+// GP2YDustSensor dustSensor(GP2YDustSensorType::GP2Y1010AU0F, DUST_PIN, 3);
 
 /*
 
@@ -80,6 +91,7 @@ int bufferCount = 0;
 
 int mode = 0;
 
+float Read_Temperature_Sensor(const int pin, const float refvoltage);
 void recordSensorData(sensors_event_t* a, sensors_event_t* g, sensors_event_t* t, File& file, unsigned long start_timestamp, unsigned long timestamp, bool writetime);
 void stopSampling();
 void startRecording(const char* wavName);
@@ -90,6 +102,9 @@ void updateDataSizeInHeader(File &file);
 const char* getUniqueFilename(const char* baseName, const char* extension);
 void flushBuffer(File& file);
 void calibrateMPU6050(Adafruit_MPU6050 &mpu, float accelOffsets[3], float gyroOffsets[3], float accelTarget[3], float gyroTarget[3]); 
+//void calibrateMQ2();
+//float readDust();
+
 
 
 void setup() {
@@ -163,6 +178,9 @@ void setup() {
   calibrateMPU6050(mpu_l, accelOffsetsLeft, gyroOffsetsLeft, accelTargetLeft, gyroTargetLeft);
   calibrateMPU6050(mpu_r, accelOffsetsRight, gyroOffsetsRight, accelTargetRight, gyroTargetRight);
   writeLog(errorFile, millis(), "MPU6050s calibrated successfully");
+
+  //calibrateMQ2();
+  writeLog(errorFile, millis(), "MQ2 calibrated successfully");
 
 }
 
@@ -244,6 +262,7 @@ void startSampling(const char* wavName, const char* csvName) {
       Noisebutton.update();
       Damagedbutton.update();
       Healthybutton.update();
+      //MQ2.update();
 
       last_timestamp = current_timestamp;
 
@@ -333,6 +352,9 @@ void recordSensorData(sensors_event_t* a, sensors_event_t* g, sensors_event_t* t
   }
 
   float temp = t->temperature;
+  //float dust = readDust(); //Not Woriking idk why
+  //float dust_raw = analogRead(DUST_PIN);
+
 
   String csv_line = "";
 
@@ -353,7 +375,8 @@ void recordSensorData(sensors_event_t* a, sensors_event_t* g, sensors_event_t* t
     csv_line += ",";
   } else {
     float temp_center = Read_Temperature_Sensor(TEMP_PIN, referenceVoltage);
-    csv_line += "," + String(temp_center) + "\n";
+    //float smokePPM = MQ2.readSensor(); // Sensor will read PPM concentration using the model, a and b values set previously or from the set
+    csv_line += "," + String(temp_center) + /"," + String(smokePPM) + "," + String(dust_raw) +/ "\n";
   }
 
   // Add the line to the buffer
@@ -574,6 +597,68 @@ void calibrateMPU6050(Adafruit_MPU6050 &mpu, float accelOffsets[3], float gyroOf
 }
 
 
+/*void calibrateMQ2() {
+
+  //Set math model to calculate the PPM concentration and the value of constants
+  MQ2.setRegressionMethod(1); //_PPM =  a*ratio^b
+  MQ2.setA(30000000); MQ2.setB(-8.308); // Configure the equation to to calculate smoke concentration
+  
+    Exponential regression:
+  Gas    | a      | b
+  LPG    | 3811.9 | -3.113
+  CH4    | 1012.7 | -2.786
+  CO     | 200000000000000 | -19.05
+  Alcohol| 60000000000 | -14.01
+  smoke  | 30000000 | -8.308
+  
+  **********  MQ Init ***************
+  //Remarks: Configure the pin of arduino as input.
+  ****************************
+  MQ2.init(); 
+   
+    //If the RL value is different from 10K please assign your RL value with the following method:
+    MQ2.setRL(10);
+  
+  /**********  MQ CAlibration **************** 
+  // Explanation: 
+   // In this routine the sensor will measure the resistance of the sensor supposedly before being pre-heated
+  // and on clean air (Calibration conditions), setting up R0 value.
+  // We recomend executing this routine only on setup in laboratory conditions.
+  // This routine does not need to be executed on each restart, you can load your R0 value from eeprom.
+  // Acknowledgements: https://jayconsystems.com/blog/understanding-a-gas-sensor
+  writeLog(errorFile, millis(), "Calibrating MQ2");   
+  Serial.print("Calibrating please wait.");
+  float calcR0 = 0;
+  for(int i = 1; i<=10; i ++)
+  {
+    MQ2.update(); // Update data, the arduino will read the voltage from the analog pin
+    calcR0 += MQ2.calibrate(RatioMQ2CleanAir);
+  }
+  MQ2.setR0(calcR0/10);
+  
+  if(isinf(calcR0)) {
+    Serial.println("Warning: Conection issue, R0 is infinite (Open circuit detected) please check your wiring and supply"); 
+    writeLog(errorFile, millis(), "Warning: Conection issue, R0 is infinite (Open circuit detected) please check your wiring and supply"); 
+    digitalWrite(ERROR_PIN, HIGH);
+    while(1);
+    }
+  if(calcR0 == 0){
+    Serial.println("Warning: Conection issue found, R0 is zero (Analog pin shorts to ground) please check your wiring and supply"); 
+    writeLog(errorFile, millis(), "Warning: Conection issue found, R0 is zero (Analog pin shorts to ground) please check your wiring and supply"); 
+    digitalWrite(ERROR_PIN, HIGH);
+    while(1);
+  }
+  /**********  MQ CAlibration ****************
+  MQ2.serialDebug(false);
+
+}*/
+
+/*float readDust() {
+  float dust = dustSensor.getDustDensity();
+  return dust;
+}*/
+
+
 /*bool copyFileWithWavHeader(int sampleRate, int bitDepth, int channels) {
 
   // Open the destination file for writing
@@ -605,4 +690,3 @@ void calibrateMPU6050(Adafruit_MPU6050 &mpu, float accelOffsets[3], float gyroOf
 
   return true;
 }*/
-
