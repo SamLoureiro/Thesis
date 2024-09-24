@@ -18,23 +18,26 @@ def extract_audio_features(file_path, noise_profile, options):
     
     features = {}
     
-    if options['basics']:
+    if options['sp']:
+        # Statistical properties features
         features = {
-            'mean': np.mean(y),
-            'std': np.std(y),
-            'rms': np.sqrt(np.mean(y**2)),
-            'kurtosis': kurtosis(y) if np.std(y) > epsilon else 0,
-            'skew': skew(y) if np.std(y) > epsilon else 0
+            'sp_mean': np.mean(y),
+            'sp_std': np.std(y),
+            'sp_rms': np.sqrt(np.mean(y**2)),
+            'sp_kurtosis': kurtosis(y) if np.std(y) > epsilon else 0,
+            'sp_skew': skew(y) if np.std(y) > epsilon else 0
         }
 
     if options['fft']:
         fft_result = np.abs(np.fft.fft(y, n=config.fft_params['n_fft']))
-        freqs = np.fft.fftfreq(config.fft_params['n_fft'], 1/sr)
+        freqs = np.fft.fftfreq(config.fft_params['n_fft'], 1 / sr)
+        # Filter the FFT result and frequencies to match the desired range
         fft_range = fft_result[(freqs >= config.fft_params['fmin']) & (freqs <= config.fft_params['fmax'])]
-        fft_range = fft_range[:config.fft_params['n_fft']]
+        freqs_range = freqs[(freqs >= config.fft_params['fmin']) & (freqs <= config.fft_params['fmax'])]
 
-        for i, value in enumerate(fft_range):
-            features[f'fft_{config.fft_params["fmin"]}_{config.fft_params["fmax"]}_{i}'] = value
+        # Iterate through the values using the central frequency of the bins
+        for freq, value in zip(freqs_range, fft_range):
+            features[f'fft_{freq:.2f}Hz'] = value
 
     if options['mfcc']:
         # Pre-emphasis filter
@@ -80,7 +83,7 @@ def extract_audio_features(file_path, noise_profile, options):
         mel_spectrogram = librosa.power_to_db(mel_spectrogram, ref=np.max)
 
         # MFCCs
-        mfccs = librosa.feature.mfcc(S=mel_spectrogram, n_mfcc=40)
+        mfccs = librosa.feature.mfcc(S=mel_spectrogram, n_mfcc=config.mfcc_params['n_mfcc'])
         
         for i in range(mfccs.shape[0]):
             avg = np.mean(mfccs[i, :])

@@ -2,7 +2,7 @@
 
 # Preprocessing options
 preprocessing_options = {
-    'basics': False,          # mean, std, rms, kurtosis, skew
+    'sp': False,                # Statiscal proprieties (mean, std, rms, kurtosis, skew)
     'noise_reduction': False,
     'fft': False,
     'mfcc': False,
@@ -18,9 +18,9 @@ noise_reduction_params = {
 
 # FFT parameters
 fft_params = {
-    'n_fft': 2048,  # Number of FFT points
+    'n_fft': 2048,  # Number of FFT points  
     'fmin': 500,    # Minimum frequency (Hz)
-    'fmax': 80000   # Maximum frequency (Hz)
+    'fmax': 85000   # Maximum frequency (Hz)
 }
 
 # MFCC parameters
@@ -47,10 +47,10 @@ stft_params = {
 force_balanced_dataset = False
 
 
-# Model
+# Model (Choose only one. If both are True, the GBDT model will be used)
 model = {
-    'GBDT': False,
-    'RF': True
+    'GBDT': True,
+    'RF': False
 }
 
 # GBDT model parameters
@@ -69,11 +69,11 @@ model_params_RF = {
 }
 
 # Save model
-save_model = True
+save_model = False
 
 # Save Metrics
-save_metrics = True
+save_metrics = False
 
 # Load model
-model_load = True
+model_load = False  
 

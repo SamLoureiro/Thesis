@@ -158,12 +158,11 @@ def main():
     # Normalize features (standardize each feature)
     scaler = StandardScaler()
     features = pd.DataFrame(scaler.fit_transform(combined_features), columns=combined_features.columns)
-    
-    #print(features.head(10))
-    #print(features.tail(10))
+    #features.to_csv('features_nr.csv', index=False)
     
     # Convert labels to a DataFrame
     labels = pd.DataFrame(labels_np, columns=["label"])    
+    #labels.to_csv('labels.csv', index=False)
    
     # Until here, the data is correct and the code is working fine
 

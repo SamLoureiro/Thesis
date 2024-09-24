@@ -22,7 +22,7 @@ def sort_key(file_path):
     numeric_part = ''.join(filter(str.isdigit, file_name))
     return int(numeric_part) if numeric_part else 0
 
-def perform_evaluation_and_prediction(model, X_test, Folder, model_string, all_data):
+def perform_evaluation_and_prediction(model, X_test, Folder, model_string, all_data, average_pre_proc_time, methods_string, current_dir=os.getcwd()):
     
     print("\nModel Description:")
     model.describe()
@@ -124,13 +124,10 @@ def perform_evaluation_and_prediction(model, X_test, Folder, model_string, all_d
     print(f"Number of damaged bearings (1) in the test set: {label_counts.get(1, 0)}")
 
     # Print the inference time
-    pre_proc_time = end_time_pre_proc - start_time_pre_proc
-    average_pre_proc_time = pre_proc_time / len(features_df)
     inference_time = end_time_test_set - start_time_test_set
     average_inference_time = inference_time / len(y_test)
     print("\n")
     print("Time Metrics:")
-    print(f"Pre-processing Time: {pre_proc_time:.4f} seconds")
     print(f"Average Pre-processing Time: {average_pre_proc_time:.4f} seconds")
     print(f"Inference Time: {inference_time:.4f} seconds")
     print(f"Average Inference Time: {average_inference_time:.4f} seconds")
@@ -223,244 +220,243 @@ def perform_evaluation_and_prediction(model, X_test, Folder, model_string, all_d
 
     return evaluation
 
-# Define directories
-current_dir = os.getcwd()
-'''
-good_bearing_dir_audio_m = os.path.join(current_dir, 'Dataset_Bearings', 'AMR_MOVEMENT', 'GOOD', 'AUDIO')
-damaged_bearing_dir_audio_m = os.path.join(current_dir, 'Dataset_Bearings', 'AMR_MOVEMENT', 'DAMAGED', 'AUDIO')
-good_bearing_dir_acel_m = os.path.join(current_dir, 'Dataset_Bearings', 'AMR_MOVEMENT', 'GOOD', 'ACEL')
-damaged_bearing_dir_acel_m = os.path.join(current_dir, 'Dataset_Bearings', 'AMR_MOVEMENT', 'DAMAGED', 'ACEL')
 
-good_bearing_dir_audio_s = os.path.join(current_dir, 'Dataset_Bearings', 'AMR_STOPPED', 'GOOD', 'AUDIO')
-damaged_bearing_dir_audio_s = os.path.join(current_dir, 'Dataset_Bearings', 'AMR_STOPPED', 'DAMAGED', 'AUDIO')
-good_bearing_dir_acel_s = os.path.join(current_dir, 'Dataset_Bearings', 'AMR_STOPPED', 'GOOD', 'ACEL')
-damaged_bearing_dir_acel_s = os.path.join(current_dir, 'Dataset_Bearings', 'AMR_STOPPED', 'DAMAGED', 'ACEL')
-
-good_bearing_dir_audio_new_amr = os.path.join(current_dir, 'Dataset_Bearings', 'NEW_AMR', 'GOOD', 'AUDIO')
-damaged_bearing_dir_audio_new_amr = os.path.join(current_dir, 'Dataset_Bearings', 'NEW_AMR', 'DAMAGED', 'AUDIO')
-good_bearing_dir_accel_new_amr  = os.path.join(current_dir, 'Dataset_Bearings', 'NEW_AMR', 'GOOD', 'ACCEL')
-damaged_bearing_dir_accel_new_amr  = os.path.join(current_dir, 'Dataset_Bearings', 'NEW_AMR', 'DAMAGED', 'ACCEL')
-
-
-# Define noise profile file
-noise_profile_file = os.path.join(current_dir, 'Dataset_Piso', 'Noise.WAV')
-
-# Load list of audio and accelerometer files for AMR_MOVEMENT
-good_bearing_files_audio_m = sorted(
-    [os.path.join(good_bearing_dir_audio_m, file) for file in os.listdir(good_bearing_dir_audio_m) if file.endswith('.WAV')],
-    key=sort_key
-)
-damaged_bearing_files_audio_m = sorted(
-    [os.path.join(damaged_bearing_dir_audio_m, file) for file in os.listdir(damaged_bearing_dir_audio_m) if file.endswith('.WAV')],
-    key=sort_key
-)
-good_bearing_files_acel_m = sorted(
-    [os.path.join(good_bearing_dir_acel_m, file) for file in os.listdir(good_bearing_dir_acel_m) if file.endswith('.csv')],
-    key=sort_key
-)
-damaged_bearing_files_acel_m = sorted(
-    [os.path.join(damaged_bearing_dir_acel_m, file) for file in os.listdir(damaged_bearing_dir_acel_m) if file.endswith('.csv')],
-    key=sort_key
-)
-
-# Load list of audio and accelerometer files for AMR_STOPPED
-good_bearing_files_audio_s = sorted(
-    [os.path.join(good_bearing_dir_audio_s, file) for file in os.listdir(good_bearing_dir_audio_s) if file.endswith('.WAV')],
-    key=sort_key
-)
-damaged_bearing_files_audio_s = sorted(
-    [os.path.join(damaged_bearing_dir_audio_s, file) for file in os.listdir(damaged_bearing_dir_audio_s) if file.endswith('.WAV')],
-    key=sort_key
-)
-good_bearing_files_acel_s = sorted(
-    [os.path.join(good_bearing_dir_acel_s, file) for file in os.listdir(good_bearing_dir_acel_s) if file.endswith('.csv')],
-    key=sort_key
-)
-damaged_bearing_files_acel_s = sorted(
-    [os.path.join(damaged_bearing_dir_acel_s, file) for file in os.listdir(damaged_bearing_dir_acel_s) if file.endswith('.csv')],
-    key=sort_key
-)
-
-# Load audio and accelerometer files for NEW_AMR
-good_bearing_files_audio_new_amr = sorted(
-    [os.path.join(good_bearing_dir_audio_new_amr, file) for file in os.listdir(good_bearing_dir_audio_new_amr) if file.endswith('.WAV')],
-    key=sort_key
-)
-damaged_bearing_files_audio_new_amr = sorted(
-    [os.path.join(damaged_bearing_dir_audio_new_amr, file) for file in os.listdir(damaged_bearing_dir_audio_new_amr) if file.endswith('.WAV')],
-    key=sort_key
-)
-good_bearing_files_accel_new_amr = sorted(
-    [os.path.join(good_bearing_dir_accel_new_amr, file) for file in os.listdir(good_bearing_dir_accel_new_amr) if file.endswith('.csv')],
-    key=sort_key
-)
-damaged_bearing_files_accel_new_amr = sorted(
-    [os.path.join(damaged_bearing_dir_accel_new_amr, file) for file in os.listdir(damaged_bearing_dir_accel_new_amr) if file.endswith('.csv')],
-    key=sort_key
-)
-
-# Combine audio files
-good_bearing_files_audio = good_bearing_files_audio_s + good_bearing_files_audio_m + good_bearing_files_audio_new_amr
-damaged_bearing_files_audio = damaged_bearing_files_audio_s + damaged_bearing_files_audio_m + damaged_bearing_files_audio_new_amr
-
-# Combine accelerometer files
-good_bearing_files_acel = good_bearing_files_acel_s + good_bearing_files_acel_m + good_bearing_files_accel_new_amr
-damaged_bearing_files_acel = damaged_bearing_files_acel_s + damaged_bearing_files_acel_m + damaged_bearing_files_accel_new_amr
-
-# Ensure sort order
-good_bearing_files_audio = sorted(good_bearing_files_audio, key=sort_key)
-damaged_bearing_files_audio = sorted(damaged_bearing_files_audio, key=sort_key)
-good_bearing_files_acel = sorted(good_bearing_files_acel, key=sort_key)
-damaged_bearing_files_acel = sorted(damaged_bearing_files_acel, key=sort_key)
-
-
-# Extract features for each file and combine them
-combined_features = []
-labels = []
-
-# Create a string based on the methods that are on
-methods_string = "_".join(method for method, value in config.preprocessing_options.items() if value)
-
-count = 0
-max_count = min(len(good_bearing_files_audio), len(damaged_bearing_files_audio))
-
-start_time_pre_proc = time.time()
-
-# Process good_bearing files
-for audio_file, accel_file in zip(good_bearing_files_audio, good_bearing_files_acel):
-    audio_features = ppf.extract_audio_features(audio_file, noise_profile_file, config.preprocessing_options)
-    accel_features = ppf.extract_accel_features(accel_file)
-    combined = {**audio_features, **accel_features}
-    combined_features.append(combined)
-    labels.append(0)  # 0 for good_bearing
-    count += 1
-    if config.force_balanced_dataset and count == max_count:
-        break
-
-n_samples_healthy = len(combined_features)
-print(f"Number of samples (Healthy Bearing): {n_samples_healthy}")
-
-count = 0
-# Process damaged_bearing files
-for audio_file, accel_file in zip(damaged_bearing_files_audio, damaged_bearing_files_acel):
-    audio_features = ppf.extract_audio_features(audio_file, noise_profile_file, config.preprocessing_options)
-    accel_features = ppf.extract_accel_features(accel_file)
-    combined = {**audio_features, **accel_features}
-    combined_features.append(combined)
-    labels.append(1)  # 1 for damaged_bearing
-    count += 1
-    if config.force_balanced_dataset and count == max_count:
-        break
-
-end_time_pre_proc = time.time()
+# Read data from a csv file
+def read_data(csv_file_data, csv_file_labels):
+    # Convert preprocessing options to a list of keywords to exclude if they are False
+    exclude_keywords = [key for key, value in config.preprocessing_options.items() if not value]
     
-n_samples_damaged = len(combined_features) - n_samples_healthy
-print(f"Number of samples (Damaged Bearing): {n_samples_damaged}")
+    # Read the CSV to get column names
+    all_columns = pd.read_csv(csv_file_data, nrows=0).columns
 
-# Create DataFrame
-combined_features_df = pd.DataFrame(combined_features)
+    # Filter out columns that contain any of the keywords with False values
+    filtered_columns = [col for col in all_columns if not any(keyword in col for keyword in exclude_keywords)]
 
-# Normalize features
-scaler = StandardScaler()
-combined_features_normalized = scaler.fit_transform(combined_features_df)
+    # Read the filtered columns from the CSV file
+    df = pd.read_csv(csv_file_data, usecols=filtered_columns)
+    
+    # Read the labels from the CSV file
+    labels = pd.read_csv(csv_file_labels)
 
-# Convert labels to numpy array
-y = np.array(labels)
-'''
-
-# Create a string based on the methods that are on
-methods_string = "_".join(method for method, value in config.preprocessing_options.items() if value)
-start_time_pre_proc = 1
-end_time_pre_proc = 1
-features_df = pd.read_csv('features_nr.csv')
-labels_df = pd.read_csv('labels.csv')
-
-# Convert features to a DataFrame
-#features_df = pd.DataFrame(combined_features_normalized, columns=combined_features_df.columns)
-#features_df.to_csv('features_nr.csv', index=False)
-
-# Convert labels to a DataFrame
-#labels_df = pd.DataFrame(y, columns=["label"])
-#labels_df.to_csv('labels.csv', index=False)
-
-# Oversampling the train dataset using SMOTE
-smt = SMOTE()
-features_df_rs, labels_df_rs = smt.fit_resample(features_df, labels_df)
-
-# Combine features and labels into one DataFrame
-data = pd.concat([features_df_rs, labels_df_rs], axis=1)
-
-print(f"Data Shape: {data.shape}")
-
-# Data Splitting
-X_train, X_test = train_test_split(data, test_size=0.2, random_state=42)
+    print(df.head())
+    
+    return df, labels
 
 
-if(config.model['GBDT']):
-    metrics_folder = 'GBDT'
-    model_string = 'gbdt'
-    model_save_folder = os.path.join(current_dir, "DTs_Models", metrics_folder)
-    model_name = model_string + '_' + methods_string
-    model_save_path = os.path.join(model_save_folder, model_name)
-    if(config.model_load and os.path.exists(model_save_path)):
-        print("Model already exists")
-        model = ydf.load_model(model_save_path)
+# Define directories and file paths
+def define_directories():
+    current_dir = os.getcwd()
+    directories = {
+        'good_bearing': {
+            'audio_m': os.path.join(current_dir, 'Dataset_Bearings', 'AMR_MOVEMENT', 'GOOD', 'AUDIO'),
+            'acel_m': os.path.join(current_dir, 'Dataset_Bearings', 'AMR_MOVEMENT', 'GOOD', 'ACEL'),
+            'audio_s': os.path.join(current_dir, 'Dataset_Bearings', 'AMR_STOPPED', 'GOOD', 'AUDIO'),
+            'acel_s': os.path.join(current_dir, 'Dataset_Bearings', 'AMR_STOPPED', 'GOOD', 'ACEL'),
+            'audio_new_amr': os.path.join(current_dir, 'Dataset_Bearings', 'NEW_AMR', 'GOOD', 'AUDIO'),
+            'accel_new_amr': os.path.join(current_dir, 'Dataset_Bearings', 'NEW_AMR', 'GOOD', 'ACCEL'),
+        },
+        'damaged_bearing': {
+            'audio_s': os.path.join(current_dir, 'Dataset_Bearings', 'AMR_STOPPED', 'DAMAGED', 'AUDIO'),
+            'acel_s': os.path.join(current_dir, 'Dataset_Bearings', 'AMR_STOPPED', 'DAMAGED', 'ACEL'),
+            'audio_m': os.path.join(current_dir, 'Dataset_Bearings', 'AMR_MOVEMENT', 'DAMAGED', 'AUDIO'),
+            'acel_m': os.path.join(current_dir, 'Dataset_Bearings', 'AMR_MOVEMENT', 'DAMAGED', 'ACEL'),
+            'audio_new_amr': os.path.join(current_dir, 'Dataset_Bearings', 'NEW_AMR', 'DAMAGED', 'AUDIO'),
+            'accel_new_amr': os.path.join(current_dir, 'Dataset_Bearings', 'NEW_AMR', 'DAMAGED', 'ACCEL'),
+        },
+        'noise_profile': os.path.join(current_dir, 'Dataset_Piso', 'Noise.WAV')
+    }
+    return directories
+
+
+# Helper function to sort files by numeric part in the filename
+def sort_key(file_path):
+    file_name = os.path.basename(file_path)
+    numeric_part = ''.join(filter(str.isdigit, file_name))
+    return int(numeric_part) if numeric_part else 0
+
+
+# Load files and extract features
+def load_and_extract_features(directories):
+    combined_features = []
+    labels = []
+
+    methods_string = "_".join(method for method, value in config.preprocessing_options.items() if value)
+    start_time_pre_proc = time.time()
+
+    # Process good bearings
+    for audio_file, accel_file in zip(
+        sorted([os.path.join(directories['good_bearing']['audio_s'], file) for file in os.listdir(directories['good_bearing']['audio_s']) if file.endswith('.WAV')], key=sort_key) +
+        sorted([os.path.join(directories['good_bearing']['audio_m'], file) for file in os.listdir(directories['good_bearing']['audio_m']) if file.endswith('.WAV')], key=sort_key) + 
+        sorted([os.path.join(directories['good_bearing']['audio_new_amr'], file) for file in os.listdir(directories['good_bearing']['audio_new_amr']) if file.endswith('.WAV')], key=sort_key),
+        sorted([os.path.join(directories['good_bearing']['acel_s'], file) for file in os.listdir(directories['good_bearing']['acel_s']) if file.endswith('.csv')], key=sort_key) +
+        sorted([os.path.join(directories['good_bearing']['acel_m'], file) for file in os.listdir(directories['good_bearing']['acel_m']) if file.endswith('.csv')], key=sort_key) +
+        sorted([os.path.join(directories['good_bearing']['accel_new_amr'], file) for file in os.listdir(directories['good_bearing']['accel_new_amr']) if file.endswith('.csv')], key=sort_key)
+    ):
+        audio_features = ppf.extract_audio_features(audio_file, directories['noise_profile'], config.preprocessing_options)
+        accel_features = ppf.extract_accel_features(accel_file)
+        combined = {**audio_features, **accel_features}
+        combined_features.append(combined)
+        labels.append(0)  # 0 for good bearing
+
+    n_samples_good_bearing = len(combined_features)
+    print(f"Number of samples (Good Bearing): {n_samples_good_bearing}")
+
+    # Process damaged bearings
+    for audio_file, accel_file in zip(
+        sorted([os.path.join(directories['damaged_bearing']['audio_s'], file) for file in os.listdir(directories['damaged_bearing']['audio_s']) if file.endswith('.WAV')], key=sort_key) +
+        sorted([os.path.join(directories['damaged_bearing']['audio_m'], file) for file in os.listdir(directories['damaged_bearing']['audio_m']) if file.endswith('.WAV')], key=sort_key) +
+        sorted([os.path.join(directories['damaged_bearing']['audio_new_amr'], file) for file in os.listdir(directories['damaged_bearing']['audio_new_amr']) if file.endswith('.WAV')], key=sort_key),
+        sorted([os.path.join(directories['damaged_bearing']['acel_s'], file) for file in os.listdir(directories['damaged_bearing']['acel_s']) if file.endswith('.csv')], key=sort_key) +
+        sorted([os.path.join(directories['damaged_bearing']['acel_m'], file) for file in os.listdir(directories['damaged_bearing']['acel_m']) if file.endswith('.csv')], key=sort_key) +
+        sorted([os.path.join(directories['damaged_bearing']['accel_new_amr'], file) for file in os.listdir(directories['damaged_bearing']['accel_new_amr']) if file.endswith('.csv')], key=sort_key)
+    ):
+        audio_features = ppf.extract_audio_features(audio_file, directories['noise_profile'], config.preprocessing_options)
+        accel_features = ppf.extract_accel_features(accel_file)
+        combined = {**audio_features, **accel_features}
+        combined_features.append(combined)
+        labels.append(1)  # 1 for damaged bearing
+
+    n_samples_damaged_bearing = len(combined_features) - n_samples_good_bearing
+    print(f"Number of samples (Damaged Bearing): {n_samples_damaged_bearing}")
+
+    n_samples_floor_noise = len(combined_features) - n_samples_good_bearing - n_samples_damaged_bearing
+    print(f"Number of samples (Floor Noise): {n_samples_floor_noise}")
+
+    end_time_pre_proc = time.time()
+
+    return pd.DataFrame(combined_features), np.array(labels), end_time_pre_proc - start_time_pre_proc, methods_string
+
+
+def main():
+    
+    # Current directory
+    current_dir = os.getcwd()
+    
+    ##########################################################################################################################
+    
+    ## Read from raw data and preprocess
+    
+    # Load files and extract features
+    combined_features_df, y, pre_proc_time, methods_string = load_and_extract_features(define_directories())    
+
+    # Average pre-processing time
+    average_pre_proc_time = pre_proc_time / len(y)
+
+    # Normalize features
+    scaler = StandardScaler()
+    combined_features_normalized = scaler.fit_transform(combined_features_df)
+
+    # Convert features to a DataFrame
+    features_df = pd.DataFrame(combined_features_normalized, columns=combined_features_df.columns)
+    #features_df.to_csv('features_nr.csv', index=False)
+
+    # Convert labels to a DataFrame
+    labels_df = pd.DataFrame(y, columns=["label"])
+    #labels_df.to_csv('labels.csv', index=False)
+    
+    ##########################################################################################################################
+    
+    ##########################################################################################################################
+    
+    ## Load preprocessed data from csv files
+    
+    # Create a string based on the methods that are on
+    '''methods_string = "_".join(method for method, value in config.preprocessing_options.items() if value)
+    average_pre_proc_time = -1
+    
+    labels_path = os.path.join(current_dir, 'Dataset_csv', 'Bearings', 'labels.csv')         # Labels
+    features_nr = os.path.join(current_dir, 'Dataset_csv', 'Bearings', 'features_nr.csv')    # Features with noise reduction
+    features = os.path.join(current_dir, 'Dataset_csv', 'Bearings', 'features.csv')          # Features without noise reduction
+    
+    if(config.preprocessing_options['noise_reduction']):
+        features_df, labels_df = read_data(features_nr, labels_path)
     else:
-        clf = ydf.GradientBoostedTreesLearner(
-            label='label',
-            task=ydf.Task.CLASSIFICATION, 
-            num_trees=config.model_params_GBDT['num_trees'], 
-            growing_strategy=config.model_params_GBDT['growing_strategy'], 
-            max_depth=config.model_params_GBDT['max_depth'],
-            early_stopping=config.model_params_GBDT['early_stopping'],
-            validation_ratio=0.1
-        )
-        model = clf.train(X_train, verbose=2)
-        
-        print("\nValidation Results:")
-        val_results = model.validation_evaluation()        
-        print(val_results)
-        # Plot a tree
-        model.print_tree(tree_idx=0)
+        features_df, labels_df = read_data(features, labels_path)'''
+    
 
-        if(config.save_model and not os.path.exists(model_save_path)):
-            os.makedirs(model_save_folder, exist_ok=True)
-            model.save(model_save_path)
-            
-elif(config.model['RF']):
-    metrics_folder = 'RF'
-    model_string = 'rf'
-    model_save_folder = os.path.join(current_dir, "DTs_Models", metrics_folder)
-    model_name = model_string + '_' + methods_string
-    model_save_path = os.path.join(model_save_folder, model_name)
-    if(config.model_load and os.path.exists(model_save_path)):
-        print("Model already exists")
-        model = ydf.load_model(model_save_path)
-    else:
-        clf = ydf.RandomForestLearner(
-            label='label',
-            task=ydf.Task.CLASSIFICATION, 
-            num_trees=config.model_params_GBDT['num_trees'], 
-            growing_strategy=config.model_params_GBDT['growing_strategy'], 
-            max_depth=config.model_params_GBDT['max_depth'],
-        )
-        model = clf.train(X_train, verbose=2)
-        
-        # As the Random Forest model does not require a validation set, we will use the out-of-bag evaluations
-        print("\nOut of_bag evaluations:")
-        val_results = model.out_of_bag_evaluations()        
-        print(val_results)
-        # Plot a tree
-        model.print_tree(tree_idx=0)
+    ##########################################################################################################################
+    
+    # Oversampling the train dataset using SMOTE
+    smt = SMOTE()
+    features_df_rs, labels_df_rs = smt.fit_resample(features_df, labels_df)
 
-        if(config.save_model and not os.path.exists(model_save_path)):
-            os.makedirs(model_save_folder, exist_ok=True)
-            model.save(model_save_path)
+    # Combine features and labels into one DataFrame
+    data = pd.concat([features_df_rs, labels_df_rs], axis=1)
+
+    print(f"Data Shape: {data.shape}")
+
+    # Data Splitting
+    X_train, X_test = train_test_split(data, test_size=0.2, random_state=42)
+
+
+    if(config.model['GBDT']):
+        metrics_folder = 'GBDT'
+        model_string = 'gbdt'
+        model_save_folder = os.path.join(current_dir, "DTs_Models", metrics_folder)
+        model_name = model_string + '_' + methods_string
+        model_save_path = os.path.join(model_save_folder, model_name)
+        if(config.model_load and os.path.exists(model_save_path)):
+            print("Model already exists")
+            model = ydf.load_model(model_save_path)
+        else:
+            clf = ydf.GradientBoostedTreesLearner(
+                label='label',
+                task=ydf.Task.CLASSIFICATION, 
+                num_trees=config.model_params_GBDT['num_trees'], 
+                growing_strategy=config.model_params_GBDT['growing_strategy'], 
+                max_depth=config.model_params_GBDT['max_depth'],
+                early_stopping=config.model_params_GBDT['early_stopping'],
+                validation_ratio=0.1
+            )
+            model = clf.train(X_train, verbose=2)
             
-        
-### perform evaluation and prediction
-perform_evaluation_and_prediction(model, X_test, metrics_folder, model_string, data)
-#model.variable_importances()
-#model.evaluate(X_test)
-# Evaluation caracteristics can be accessed by the code in the comment below
-#evaluation.characteristics[0]. ...
+            print("\nValidation Results:")
+            val_results = model.validation_evaluation()        
+            print(val_results)
+            # Plot a tree
+            model.print_tree(tree_idx=0)
+
+            if(config.save_model and not os.path.exists(model_save_path)):
+                os.makedirs(model_save_folder, exist_ok=True)
+                model.save(model_save_path)
+                
+    elif(config.model['RF']):
+        metrics_folder = 'RF'
+        model_string = 'rf'
+        model_save_folder = os.path.join(current_dir, "DTs_Models", metrics_folder)
+        model_name = model_string + '_' + methods_string
+        model_save_path = os.path.join(model_save_folder, model_name)
+        if(config.model_load and os.path.exists(model_save_path)):
+            print("Model already exists")
+            model = ydf.load_model(model_save_path)
+        else:
+            clf = ydf.RandomForestLearner(
+                label='label',
+                task=ydf.Task.CLASSIFICATION, 
+                num_trees=config.model_params_GBDT['num_trees'], 
+                growing_strategy=config.model_params_GBDT['growing_strategy'], 
+                max_depth=config.model_params_GBDT['max_depth'],
+            )
+            model = clf.train(X_train, verbose=2)
+            
+            # As the Random Forest model does not require a validation set, we will use the out-of-bag evaluations
+            print("\nOut of_bag evaluations:")
+            val_results = model.out_of_bag_evaluations()        
+            print(val_results)
+            # Plot a tree
+            model.print_tree(tree_idx=0)
+
+            if(config.save_model and not os.path.exists(model_save_path)):
+                os.makedirs(model_save_folder, exist_ok=True)
+                model.save(model_save_path)
+                
+            
+    ### perform evaluation and prediction
+    perform_evaluation_and_prediction(model, X_test, metrics_folder, model_string, data, average_pre_proc_time, methods_string)
+    #model.variable_importances()
+    #model.evaluate(X_test)
+    # Evaluation caracteristics can be accessed by the code in the comment below
+    #evaluation.characteristics[0]. ...    
+            
+if __name__ == "__main__":
+    main()
