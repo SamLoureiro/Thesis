@@ -731,7 +731,6 @@ class DENSE:
         
         # Encoder
         encoded = Dense(self.units_1, activation='relu', kernel_regularizer=regularizers.L1L2(l1=self.l1, l2=self.l2))(noisy_inputs)
-        #encoded = LeakyReLU(negative_slope=0.1)(encoded)
         encoded = BatchNormalization()(encoded)
         encoded = Dropout(self.dropout_1)(encoded)
         encoded = Dense(self.units_2, activation='relu', kernel_regularizer=regularizers.L1L2(l1=self.l1, l2=self.l2))(encoded)
@@ -751,7 +750,6 @@ class DENSE:
         decoded = Dropout(self.dropout_4)(decoded)
         decoded = Dense(self.units_1, activation='relu')(decoded)
         decoded = Dense(self.input_dim, activation='sigmoid')(decoded)
-        #encoded = LeakyReLU(negative_slope=0.1)(encoded)
         
         autoencoder = Model(input_layer, decoded)
         autoencoder.compile(optimizer=Adam(learning_rate=self.learning_rate), loss='mse')        

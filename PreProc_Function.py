@@ -38,6 +38,7 @@ def extract_audio_features(file_path, noise_profile, options):
         # Iterate through the values using the central frequency of the bins
         for freq, value in zip(freqs_range, fft_range):
             features[f'fft_{freq:.2f}Hz'] = value
+            
 
     if options['mfcc']:
         # Pre-emphasis filter
@@ -98,20 +99,36 @@ def extract_audio_features(file_path, noise_profile, options):
         stft = np.abs(librosa.stft(y, n_fft=config.stft_params['n_fft'], hop_length=config.stft_params['hop_length']))
         stft_mean = np.mean(stft, axis=1)
         stft_std = np.std(stft, axis=1)
-        stft_rms = np.sqrt(np.mean(stft**2, axis=1))
+        # stft_rms = np.sqrt(np.mean(stft**2, axis=1))
         
         # Get the frequency bins corresponding to the STFT result
         freqs = librosa.fft_frequencies(sr=sr, n_fft=config.stft_params['n_fft'])
         
-        for i, freq in enumerate(freqs):
-            features[f'stft_mean_{freq:.2f}_Hz'] = stft_mean[i]
-            features[f'stft_std_{freq:.2f}_Hz'] = stft_std[i]
-            features[f'stft_rms_{freq:.2f}_Hz'] = stft_rms[i]
+        upper_freq = config.stft_params['fmax']
+        lower_freq = config.stft_params['fmin']
+
+        # Create a mask to filter frequencies between 500 Hz and 80 kHz
+        freq_mask = (freqs >= lower_freq) & (freqs <= upper_freq)
+        
+        # Apply the mask to the frequency bins and STFT features
+        filtered_freqs = freqs[freq_mask]
+        filtered_stft_mean = stft_mean[freq_mask]
+        filtered_stft_std = stft_std[freq_mask]
+        # filtered_stft_rms = stft_rms[freq_mask] if stft_rms is not None else None
+
+        for i, freq in enumerate(filtered_freqs):
+            features[f'stft_mean_{freq:.2f}_Hz'] = filtered_stft_mean[i]
+            features[f'stft_std_{freq:.2f}_Hz'] = filtered_stft_std[i]
+            # if filtered_stft_rms is not None:
+            #     features[f'stft_rms_{freq:.2f}_Hz'] = filtered_stft_rms[i]
 
     return features
 
 
+
 def extract_accel_features(file_path):
+    if(config.preprocessing_options['sp_accel'] == False):
+        return {}
     epsilon = 1e-10
     df = pd.read_csv(file_path)
     features = {}

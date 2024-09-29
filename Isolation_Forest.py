@@ -22,7 +22,7 @@ def sort_key(file_path):
     numeric_part = ''.join(filter(str.isdigit, file_name))
     return int(numeric_part) if numeric_part else 0
 
-def perform_evaluation_and_prediction(model, X_test, Folder, model_string, all_data):
+'''def perform_evaluation_and_prediction(model, X_test, Folder, model_string, all_data):
     
     print("\nModel Description:")
     model.describe()
@@ -171,157 +171,63 @@ def perform_evaluation_and_prediction(model, X_test, Folder, model_string, all_d
     plt.tight_layout()
     plt.show()
 
-    return evaluation
+    return evaluation'''
+    
+    
+def read_and_concat_data(base_path, preprocessing_options=config.preprocessing_options):
+    # Initialize an empty list to store DataFrames
+    dataframes = []
+    
+    nr = preprocessing_options.get('noise_reduction', True)
+    
+    preprocessing_options.update({'noise_reduction': False})
+        
+    labels_path = os.path.join(base_path, 'labels.csv')
+    
+    # Iterate over the preprocessing options
+    for option, include in preprocessing_options.items():
+        if include:
+            # Construct the file name based on the option (assuming CSV file names match keys)
+            if nr:
+                base_path = os.path.join(base_path, 'NR')
+                csv_file = os.path.join(base_path, f"{option}_nr.csv")                
+            else:
+                csv_file = os.path.join(base_path, f"{option}.csv")
+            
+            try:
+                # Read the CSV file into a DataFrame
+                df = pd.read_csv(csv_file)
+                # Append the DataFrame to the list
+                dataframes.append(df)
+            except FileNotFoundError:
+                print(f"File {csv_file} not found. Skipping...")
 
-# Define directories
+    # Concatenate all DataFrames along columns (axis=1)
+    if dataframes:
+        combined_df = pd.concat(dataframes, axis=1)
+    else:
+        raise ValueError("No valid dataframes to concatenate.")
+    
+    labels = pd.read_csv(labels_path)
+    
+
+    print(combined_df.head())
+    
+    return combined_df, labels
+
+
 current_dir = os.getcwd()
 
-good_bearing_dir_audio_m = os.path.join(current_dir, 'Dataset_Bearings', 'AMR_MOVEMENT', 'GOOD', 'AUDIO')
-damaged_bearing_dir_audio_m = os.path.join(current_dir, 'Dataset_Bearings', 'AMR_MOVEMENT', 'DAMAGED', 'AUDIO')
-good_bearing_dir_acel_m = os.path.join(current_dir, 'Dataset_Bearings', 'AMR_MOVEMENT', 'GOOD', 'ACEL')
-damaged_bearing_dir_acel_m = os.path.join(current_dir, 'Dataset_Bearings', 'AMR_MOVEMENT', 'DAMAGED', 'ACEL')
-
-good_bearing_dir_audio_s = os.path.join(current_dir, 'Dataset_Bearings', 'AMR_STOPPED', 'GOOD', 'AUDIO')
-damaged_bearing_dir_audio_s = os.path.join(current_dir, 'Dataset_Bearings', 'AMR_STOPPED', 'DAMAGED', 'AUDIO')
-good_bearing_dir_acel_s = os.path.join(current_dir, 'Dataset_Bearings', 'AMR_STOPPED', 'GOOD', 'ACEL')
-damaged_bearing_dir_acel_s = os.path.join(current_dir, 'Dataset_Bearings', 'AMR_STOPPED', 'DAMAGED', 'ACEL')
-
-good_bearing_dir_audio_new_amr = os.path.join(current_dir, 'Dataset_Bearings', 'NEW_AMR', 'GOOD', 'AUDIO')
-damaged_bearing_dir_audio_new_amr = os.path.join(current_dir, 'Dataset_Bearings', 'NEW_AMR', 'DAMAGED', 'AUDIO')
-good_bearing_dir_accel_new_amr  = os.path.join(current_dir, 'Dataset_Bearings', 'NEW_AMR', 'GOOD', 'ACCEL')
-damaged_bearing_dir_accel_new_amr  = os.path.join(current_dir, 'Dataset_Bearings', 'NEW_AMR', 'DAMAGED', 'ACCEL')
-
-
-# Define noise profile file
-noise_profile_file = os.path.join(current_dir, 'Dataset_Piso', 'Noise.WAV')
-
-# Load list of audio and accelerometer files for AMR_MOVEMENT
-good_bearing_files_audio_m = sorted(
-    [os.path.join(good_bearing_dir_audio_m, file) for file in os.listdir(good_bearing_dir_audio_m) if file.endswith('.WAV')],
-    key=sort_key
-)
-damaged_bearing_files_audio_m = sorted(
-    [os.path.join(damaged_bearing_dir_audio_m, file) for file in os.listdir(damaged_bearing_dir_audio_m) if file.endswith('.WAV')],
-    key=sort_key
-)
-good_bearing_files_acel_m = sorted(
-    [os.path.join(good_bearing_dir_acel_m, file) for file in os.listdir(good_bearing_dir_acel_m) if file.endswith('.csv')],
-    key=sort_key
-)
-damaged_bearing_files_acel_m = sorted(
-    [os.path.join(damaged_bearing_dir_acel_m, file) for file in os.listdir(damaged_bearing_dir_acel_m) if file.endswith('.csv')],
-    key=sort_key
-)
-
-# Load list of audio and accelerometer files for AMR_STOPPED
-good_bearing_files_audio_s = sorted(
-    [os.path.join(good_bearing_dir_audio_s, file) for file in os.listdir(good_bearing_dir_audio_s) if file.endswith('.WAV')],
-    key=sort_key
-)
-damaged_bearing_files_audio_s = sorted(
-    [os.path.join(damaged_bearing_dir_audio_s, file) for file in os.listdir(damaged_bearing_dir_audio_s) if file.endswith('.WAV')],
-    key=sort_key
-)
-good_bearing_files_acel_s = sorted(
-    [os.path.join(good_bearing_dir_acel_s, file) for file in os.listdir(good_bearing_dir_acel_s) if file.endswith('.csv')],
-    key=sort_key
-)
-damaged_bearing_files_acel_s = sorted(
-    [os.path.join(damaged_bearing_dir_acel_s, file) for file in os.listdir(damaged_bearing_dir_acel_s) if file.endswith('.csv')],
-    key=sort_key
-)
-
-# Load audio and accelerometer files for NEW_AMR
-good_bearing_files_audio_new_amr = sorted(
-    [os.path.join(good_bearing_dir_audio_new_amr, file) for file in os.listdir(good_bearing_dir_audio_new_amr) if file.endswith('.WAV')],
-    key=sort_key
-)
-damaged_bearing_files_audio_new_amr = sorted(
-    [os.path.join(damaged_bearing_dir_audio_new_amr, file) for file in os.listdir(damaged_bearing_dir_audio_new_amr) if file.endswith('.WAV')],
-    key=sort_key
-)
-good_bearing_files_accel_new_amr = sorted(
-    [os.path.join(good_bearing_dir_accel_new_amr, file) for file in os.listdir(good_bearing_dir_accel_new_amr) if file.endswith('.csv')],
-    key=sort_key
-)
-damaged_bearing_files_accel_new_amr = sorted(
-    [os.path.join(damaged_bearing_dir_accel_new_amr, file) for file in os.listdir(damaged_bearing_dir_accel_new_amr) if file.endswith('.csv')],
-    key=sort_key
-)
-
-# Combine audio files
-good_bearing_files_audio = good_bearing_files_audio_s + good_bearing_files_audio_m + good_bearing_files_audio_new_amr
-damaged_bearing_files_audio = damaged_bearing_files_audio_s + damaged_bearing_files_audio_m + damaged_bearing_files_audio_new_amr
-
-# Combine accelerometer files
-good_bearing_files_acel = good_bearing_files_acel_s + good_bearing_files_acel_m + good_bearing_files_accel_new_amr
-damaged_bearing_files_acel = damaged_bearing_files_acel_s + damaged_bearing_files_acel_m + damaged_bearing_files_accel_new_amr
-
-# Ensure sort order
-good_bearing_files_audio = sorted(good_bearing_files_audio, key=sort_key)
-damaged_bearing_files_audio = sorted(damaged_bearing_files_audio, key=sort_key)
-good_bearing_files_acel = sorted(good_bearing_files_acel, key=sort_key)
-damaged_bearing_files_acel = sorted(damaged_bearing_files_acel, key=sort_key)
-
-
-# Extract features for each file and combine them
-combined_features = []
-labels = []
+## Load preprocessed data from csv files
 
 # Create a string based on the methods that are on
 methods_string = "_".join(method for method, value in config.preprocessing_options.items() if value)
+average_pre_proc_time = -1
 
-count = 0
-max_count = min(len(good_bearing_files_audio), len(damaged_bearing_files_audio))
-
-start_time_pre_proc = time.time()
-
-# Process good_bearing files
-for audio_file, accel_file in zip(good_bearing_files_audio, good_bearing_files_acel):
-    audio_features = ppf.extract_audio_features(audio_file, noise_profile_file, config.preprocessing_options)
-    accel_features = ppf.extract_accel_features(accel_file)
-    combined = {**audio_features, **accel_features}
-    combined_features.append(combined)
-    labels.append(0)  # 0 for good_bearing
-    count += 1
-    if config.force_balanced_dataset and count == max_count:
-        break
-
-n_samples_healthy = len(combined_features)
-print(f"Number of samples (Healthy Bearing): {n_samples_healthy}")
-
-count = 0
-# Process damaged_bearing files
-for audio_file, accel_file in zip(damaged_bearing_files_audio, damaged_bearing_files_acel):
-    audio_features = ppf.extract_audio_features(audio_file, noise_profile_file, config.preprocessing_options)
-    accel_features = ppf.extract_accel_features(accel_file)
-    combined = {**audio_features, **accel_features}
-    combined_features.append(combined)
-    labels.append(1)  # 1 for damaged_bearing
-    count += 1
-    if config.force_balanced_dataset and count == max_count:
-        break
-
-end_time_pre_proc = time.time()
-    
-n_samples_damaged = len(combined_features) - n_samples_healthy
-print(f"Number of samples (Damaged Bearing): {n_samples_damaged}")
-
-# Create DataFrame
-combined_features_df = pd.DataFrame(combined_features)
-
-# Normalize features
-scaler = StandardScaler()
-combined_features_normalized = scaler.fit_transform(combined_features_df)
-
-# Convert labels to numpy array
-y = np.array(labels)
+combined_features_normalized, labels_df = read_and_concat_data(os.path.join(current_dir, 'Dataset_csv', 'Bearings_Complete'))
 
 # Convert features to a DataFrame
-features_df = pd.DataFrame(combined_features_normalized, columns=combined_features_df.columns)
-
-# Convert labels to a DataFrame
-labels_df = pd.DataFrame(y, columns=["label"])
+features_df = pd.DataFrame(combined_features_normalized, columns=combined_features_normalized.columns)
 
 good_bearing_samples = features_df.loc[labels_df.index[labels_df['label'] == 0]]
 good_bearing_labels = labels_df.loc[labels_df.index[labels_df['label'] == 0]]
@@ -343,10 +249,15 @@ X_val_damaged, X_test_damaged = train_test_split(damaged_bearing_df, test_size=0
 X_test = pd.concat([X_test_good, X_test_damaged.iloc[:len(X_test_good)]])
 
 model = ydf.IsolationForestLearner(
-    features=combined_features_df.columns.tolist(),
-    growing_strategy = 'BEST_FIRST_GLOBAL')
+    features=combined_features_normalized.columns.tolist(),
+    growing_strategy = 'BEST_FIRST_GLOBAL',
+    num_trees = 1000,
+    categorical_algorithm = 'RANDOM',
+    split_axis = 'SPARSE_OBLIQUE',
+    max_num_nodes=1000,
+    )
 
-model_trained = model.train(X_train)
+model_trained = model.train(X_train, verbose=2)
 
 predictions = model_trained.predict(X_test)
 
