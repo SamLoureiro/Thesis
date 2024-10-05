@@ -5,8 +5,8 @@ preprocessing_options = {
     'sp': False,
     'noise_reduction': False,
     'fft': False,
-    'mfcc': False,
-    'stft': True,
+    'mfcc': True,
+    'stft': False,
     'sp_accel': False
 }
 
@@ -28,7 +28,7 @@ fft_params = {
 mfcc_params = {
     'n_fft': 2048,       # Number of FFT points
     'hop_length': 512,   # Hop size between successive frames
-    'n_mels': 106,       # Number of Mel filter banks
+    'n_mels': 100,       # Number of Mel filter banks
     'fmin': 500,         # Minimum frequency (Hz)
     'fmax': 80000,       # Maximum frequency (Hz)
     'n_mfcc': 40         # Number of MFCC coefficients
@@ -63,14 +63,14 @@ model = {
 
 # GBDT model parameters
 model_params_GBDT = {
-    'num_trees': 100,                                           # Default: 300                              
+    'num_trees': 100,       #100                                # Default: 300                              
     'growing_strategy': 'BEST_FIRST_GLOBAL',                    # Default: 'LOCAL'
     'max_depth': -1,                                            # Default: 6
     'early_stopping': 'LOSS_INCREASE',                          # Default: 'LOSS_INCREASE'
     'split_axis': 'SPARSE_OBLIQUE',                             # Default: 'AXIS_ALIGNED'
     'sparse_oblique_num_projections_exponent': 1.0,             # Default: 1.0  (only for 'SPARSE_OBLIQUE')
     'max_num_nodes': 100,                                       # Default: None
-    'l1_regularization': 0.01,                                  # Default: 0.0
+    'l1_regularization': 0.01,         #0.01                    # Default: 0.0
     'l2_regularization': 0.01,                                  # Default: 0.0
     'shrinkage': 0.01,                                          # Default: 0.1
 }
@@ -87,11 +87,16 @@ model_params_RF = {
 }
 
 # Save model
-save_model = True
+save_model = False
 
 # Save Metrics
-save_metrics = True
+save_metrics = False
 
 # Load model
 model_load = False  
 
+# Save HTLM
+save_html = False
+
+# Cross-validation
+cross_validation = False

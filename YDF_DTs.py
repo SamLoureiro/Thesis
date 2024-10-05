@@ -2,9 +2,12 @@ import os
 import time
 import numpy as np
 import pandas as pd
+import re
+from bs4 import BeautifulSoup
 from sklearn.preprocessing import StandardScaler
 import ydf
 from sklearn.model_selection import train_test_split
+from IPython.core.display import HTML
 from sklearn.metrics import precision_score, recall_score, f1_score, accuracy_score, classification_report, confusion_matrix, roc_auc_score, precision_recall_curve
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -22,11 +25,78 @@ def sort_key(file_path):
     numeric_part = ''.join(filter(str.isdigit, file_name))
     return int(numeric_part) if numeric_part else 0
 
+def extract_plot_data(html_content, model):
+    soup = BeautifulSoup(html_content, 'html.parser')
+
+    # Find the script tag that contains the Plotly chart data
+    script_tags = soup.find_all('script')
+    script_text = [None, None]
+    i = 0
+    if(model == 'gbdt'):
+        limit = 2
+    else:
+        limit = 1
+    for script in script_tags:
+        if(i == limit):
+            break
+        if 'Plotly.newPlot' in script.text:
+            script_text[i] = script.text
+            i += 1
+    
+    if not script_text:
+        raise ValueError("No Plotly chart data found in the HTML content.")
+
+    # Use regex to extract x and y values
+    try:
+        x_data = re.search(r"x:\s*\[([^\]]+)\]", script_text[0]).group(1)
+        loss_data = re.findall(r"y:\s*\[([^\]]+)\]", script_text[0])
+        accuracy_data = re.findall(r"y:\s*\[([^\]]+)\]", script_text[1])
+        loss_training = loss_data[0]
+        loss_validation = loss_data[1]
+        accuracy_training = accuracy_data[0]
+        accuracy_validation = accuracy_data[1]
+    except (IndexError, AttributeError):
+        raise ValueError("Error extracting plot data from the script text.")
+
+    # Convert extracted data from strings to lists of floats
+    x_values = list(map(float, x_data.split(',')))
+    loss_training_values = list(map(float, loss_training.split(',')))
+    loss_validation_values = list(map(float, loss_validation.split(',')))
+    accuracy_training_values = list(map(float, accuracy_training.split(',')))
+    accuracy_validation_values = list(map(float, accuracy_validation.split(',')))        
+
+    return x_values, loss_training_values, loss_validation_values, accuracy_training_values, accuracy_validation_values
+
+
+# Function to plot the extracted data using Plotly
+def plot_from_html(html_content, model, save, save_path):
+    # Extract the x and y data from the HTML
+    x_values, loss_training_values, loss_validation_values, accuracy_training_values, accuracy_validation_values = extract_plot_data(html_content, model)
+
+    # Plotting
+    plt.figure(figsize=(10,6))
+    plt.plot(x_values, loss_training_values, label='Training Loss', color='blue', linewidth=2)
+    plt.plot(x_values, loss_validation_values, label='Validation Loss', color='orange', linestyle='--', linewidth=2)
+    plt.plot(x_values, accuracy_training_values, label='Training Accuracy', color='green', linewidth=2)
+    plt.plot(x_values, accuracy_validation_values, label='Validation Accuracy', color='red', linestyle='--', linewidth=2)
+
+
+    # Adding labels and title
+    plt.xlabel('Number of Trees')
+    plt.ylabel('Loss/Accuracy')
+    plt.title('Training Metrics vs Validation Metrics')
+    plt.legend()
+
+    # Show plot
+    plt.grid(True)
+    if save:
+        plt.savefig(save_path, format='svg')
+    plt.show()
+        
+
 def perform_evaluation_and_prediction(model, X_test, Folder, model_string, all_data, average_pre_proc_time, methods_string, learner, current_dir=os.getcwd()):
     
-    print("\nModel Description:")
-    model.describe()
-    
+ 
     evaluation = model.evaluate(X_test)
     
     print(model.benchmark(X_test))
@@ -35,8 +105,7 @@ def perform_evaluation_and_prediction(model, X_test, Folder, model_string, all_d
     print('Test evaluation:')
     print(evaluation)
 
-    test_loss = evaluation.loss
-    print(f'Test Loss: {test_loss:.4f}')    
+    test_loss = evaluation.loss       
     
     # Predict on the test set
     start_time_test_set = time.time()
@@ -45,20 +114,6 @@ def perform_evaluation_and_prediction(model, X_test, Folder, model_string, all_d
     
     # Convert labels to numpy array 
     y_test = X_test['label'].values
-    
-    '''# Calculate precision-recall values for different thresholds
-    precisions, recalls, thresholds = precision_recall_curve(y_test, y_pred_probs)
-
-    # Compute F1 scores for each threshold
-    f1_scores = 2 * (precisions * recalls) / (precisions + recalls)
-
-    # Find the index of the best F1 score
-    best_f1_idx = np.argmax(f1_scores)
-    best_threshold = thresholds[best_f1_idx]
-
-    print(f"Best F1 score: {f1_scores[best_f1_idx]:.4f} at threshold {best_threshold:.4f}")'''
-    
-    # For late, when the dataset is labeled with the features names
     
     #print("\nPredictions Analyzed:")
     #model.analyze_prediction(X_test, sampling=0.1)
@@ -115,9 +170,16 @@ def perform_evaluation_and_prediction(model, X_test, Folder, model_string, all_d
     plt.ylabel('Density')
     plt.title('Probability Distribution for Healthy vs. Damaged Bearings')
     plt.axvline(0.5, color='red', linestyle='--', label='Decision Threshold (0.50)')
-
     # Place the legend inside the plot in the upper right
     plt.legend(title='True Label', loc='upper right')
+    
+    # Save the residual plot
+    if(config.save_metrics):
+        results_plot_folder = os.path.join(current_dir, 'DT_Results', 'IMPROVED_DATASET', Folder)
+        results_plot_path = os.path.join(current_dir, 'DT_Results', 'IMPROVED_DATASET', Folder, model_string + '_plot_dist_' + methods_string + '.svg')
+        os.makedirs(results_plot_folder, exist_ok=True)
+        plt.savefig(results_plot_path, format='svg')
+
     plt.show()
 
 
@@ -146,11 +208,12 @@ def perform_evaluation_and_prediction(model, X_test, Folder, model_string, all_d
 
     print("\n")
 
+    print(f"Accuracy: {accuracy:.4f}")
     print(f"Precision: {precision:.4f}")
     print(f"Recall: {recall:.4f}")
     print(f"F1 Score: {f1:.4f}")
-    print(f"Accuracy: {accuracy:.4f}")
     print(f"ROC AUC: {roc_auc:.4f}")
+    print(f'Test Loss: {test_loss:.4f}') 
     
     print("\n")
 
@@ -172,8 +235,8 @@ def perform_evaluation_and_prediction(model, X_test, Folder, model_string, all_d
 
     # Save the residual plot
     if(config.save_metrics):
-        results_plot_folder = os.path.join(current_dir, 'DT_Results', 'NEW_AMR', Folder)
-        results_plot_path = os.path.join(current_dir, 'DT_Results', 'NEW_AMR', Folder, model_string + '_conf_matrix_' + methods_string + '.svg')
+        results_plot_folder = os.path.join(current_dir, 'DT_Results', 'IMPROVED_DATASET', Folder)
+        results_plot_path = os.path.join(current_dir, 'DT_Results', 'IMPROVED_DATASET', Folder, model_string + '_conf_matrix_' + methods_string + '.svg')
         os.makedirs(results_plot_folder, exist_ok=True)
         plt.savefig(results_plot_path, format='svg')
 
@@ -183,9 +246,9 @@ def perform_evaluation_and_prediction(model, X_test, Folder, model_string, all_d
 
     # Gather all metrics
     metrics_dict = {
-        'Metric': ['Precision', 'Recall', 'F1 Score', 'Accuracy', 'ROC AUC', 'Loss',
+        'Metric': ['Accuracy', 'Precision', 'Recall', 'F1 Score', 'ROC AUC', 'Loss',
                 'Average Pre-processing Time','Average Inference Time'],
-        'Value': [precision, recall, f1, accuracy, roc_auc,test_loss,
+        'Value': [accuracy, precision, recall, f1, roc_auc,test_loss,
                 average_pre_proc_time, average_inference_time]
     }
     # Save Metrics
@@ -203,11 +266,12 @@ def perform_evaluation_and_prediction(model, X_test, Folder, model_string, all_d
         print(metrics_df)
         
     
-    # Prediction with all data    
-    cross_eval = learner.cross_validation(all_data, folds=10)
-    
-    print("\nCross Validation:")
-    print(cross_eval)
+    if(config.cross_validation):
+        # Prediction with all data    
+        cross_eval = learner.cross_validation(all_data, folds=7)
+        
+        print("\nCross Validation:")
+        print(cross_eval)
 
     return evaluation
 
@@ -238,6 +302,7 @@ def read_data(csv_file_data, csv_file_labels):
 
 def read_and_concat_data(base_path, preprocessing_options=config.preprocessing_options):
     # Initialize an empty list to store DataFrames
+    print(preprocessing_options)
     dataframes = []
     
     nr = preprocessing_options.get('noise_reduction', True)
@@ -276,8 +341,6 @@ def read_and_concat_data(base_path, preprocessing_options=config.preprocessing_o
     print(combined_df.head())
     
     return combined_df, labels
-
-
 
 
 # Define directories and file paths
@@ -390,7 +453,7 @@ def main():
     current_dir = os.getcwd()
     
     ##########################################################################################################################
-    '''
+    
     ## Read from raw data and preprocess
     
     # Load files and extract features
@@ -405,16 +468,16 @@ def main():
 
     # Convert features to a DataFrame
     features_df = pd.DataFrame(combined_features_normalized, columns=combined_features_df.columns)
-    features_df.to_csv('fft.csv', index=False)
+    #features_df.to_csv('fft.csv', index=False)
 
     # Convert labels to a DataFrame
     labels_df = pd.DataFrame(y, columns=["label"])
     #labels_df.to_csv('stft.csv', index=False)
+    
+    ##########################################################################################################################
+    
+    ##########################################################################################################################
     '''
-    ##########################################################################################################################
-    
-    ##########################################################################################################################
-    
     ## Load preprocessed data from csv files
     
     # Create a string based on the methods that are on
@@ -422,7 +485,7 @@ def main():
     average_pre_proc_time = -1
     
     features_df, labels_df = read_and_concat_data(os.path.join(current_dir, 'Dataset_csv', 'Bearings_Complete'))
-    
+    '''
 
     ##########################################################################################################################
     
@@ -463,7 +526,7 @@ def main():
     print(f"Data Shape: {data.shape}")
 
     # Data Splitting
-    X_train, X_test = train_test_split(data, test_size=0.2, random_state=42)
+    X_train, X_test = train_test_split(data, test_size=0.2, random_state=54)
 
 
     if(config.model['GBDT']):
@@ -490,14 +553,12 @@ def main():
                 max_num_nodes=config.model_params_GBDT['max_num_nodes'],
                 l1_regularization=config.model_params_GBDT['l1_regularization'],
                 l2_regularization=config.model_params_GBDT['l2_regularization'],
-                shrinkage = config.model_params_GBDT['shrinkage']
+                shrinkage = config.model_params_GBDT['shrinkage'],
             )
-            
-            # List the available templates for the GBT learner.
+            # List the available templates for the GBDT learner.
             templates = clf.hyperparameter_templates()
             print(templates)
             model = clf.train(X_train, verbose=2)
-            
             print("\nValidation Results:")
             val_results = model.validation_evaluation()        
             print(val_results)
@@ -543,16 +604,23 @@ def main():
             print(val_results)
             # Plot a tree
             model.print_tree(tree_idx=0)
-
             if(config.save_model and not os.path.exists(model_save_path)):
                 os.makedirs(model_save_folder, exist_ok=True)
-                model.save(model_save_path)           
+                model.save(model_save_path)
+    
+    # Get the HTML content from model.describe()
+    html_content = model.describe(output_format='html', full_details=True)
+    if(config.save_html):
+        # Save it to an HTML file
+        with open(model_string + '_' + methods_string + '.html', 'w') as f:
+            f.write(html_content)            
 
+    if(model_string == 'gbdt'):
+        save_path_loss = os.path.join(current_dir, 'tuning_loss', model_string + '_' + methods_string + '.svg')
+        os.makedirs(save_path_loss, exist_ok=True)
+        plot_from_html(html_content, model_string, save = False, save_path=save_path_loss)
     perform_evaluation_and_prediction(model, X_test, metrics_folder, model_string, data, average_pre_proc_time, methods_string, clf)
-    #model.variable_importances()
-    #model.evaluate(X_test)
-    # Evaluation caracteristics can be accessed by the code in the comment below
-    #evaluation.characteristics[0]. ...    
+
             
 if __name__ == "__main__":
     main()

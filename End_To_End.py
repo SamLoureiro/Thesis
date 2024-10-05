@@ -1,3 +1,12 @@
+'''
+Still in devolopment
+
+THe objetive is to load an Autoencoder, detect if a sample is a bearing or noise, 
+and if it is a bearing, detect if it is good or damaged through a GBDT/RF model.
+
+'''
+
+
 import os
 import shutil
 import time
@@ -15,8 +24,8 @@ from sklearn.metrics import (precision_score, recall_score, f1_score, roc_auc_sc
                              confusion_matrix, accuracy_score, roc_curve, classification_report, precision_recall_curve)
 from sklearn.model_selection import train_test_split
 from keras.models import load_model
-from UN_CNN_Models import DENSE
-from UN_CNN_Models_TuningVersion import DENSE_TUNING
+from UN_Models import DENSE
+from UN_Models_TuningVersion import DENSE_TUNING
 from AE_Aux_Func import reduce_dimensions, plot_reduced_data, plot_metrics_vs_threshold, find_optimal_threshold_f1, save_metrics_to_csv
 
 

@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+import warnings
 import librosa
 import noisereduce as nr
 from scipy.stats import kurtosis, skew
@@ -52,7 +53,7 @@ def extract_audio_features(file_path, noise_profile, options):
         
         # Find the number of Mel filter banks that can be computed without any empty filters
         # Unccomment the following code if the samples proprietaries are not known, or the pre-processing parameters were changed
-        '''mfcc_computed = False
+        mfcc_computed = False
         while not mfcc_computed:
             try:
                 with warnings.catch_warnings(record=True) as w:
@@ -71,8 +72,8 @@ def extract_audio_features(file_path, noise_profile, options):
                     if n_mels < 1:
                         raise ValueError("Unable to compute MFCCs with given parameters.")
                 else:
-                    raise  # Re-raise any other exceptions'''
-                
+                    raise  # Re-raise any other exceptions
+            
         # Mel-frequency filter bank
         # Comment the following line if the samples proprietaries are not known, or the pre-processing parameters were changed
         mel_filterbank = librosa.filters.mel(sr=sr, n_fft=config.mfcc_params['n_fft'],n_mels=n_mels, fmin=config.mfcc_params['fmin'], fmax=config.mfcc_params['fmax'])

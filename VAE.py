@@ -28,7 +28,7 @@ import tensorflow as tf
 from keras.callbacks import EarlyStopping
 from keras.models import load_model
 from keras_tuner import HyperModel, HyperParameters, BayesianOptimization, Hyperband
-from UN_CNN_Models import RNN_DEEP, RNN_SIMPLE, CNN_SIMPLE, CNN_DEEP, Attention_AE, vae_model_builder, VAE
+from UN_Models import RNN_DEEP, RNN_SIMPLE, CNN_SIMPLE, CNN_DEEP, Attention_AE, vae_model_builder, VAE
 from AE_Aux_Func import plot_metrics_vs_threshold, plot_precision_recall_curve, find_optimal_threshold_f1, save_metrics_to_csv
 
 

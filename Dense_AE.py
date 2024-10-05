@@ -1,10 +1,8 @@
 '''
 Developer Notes:
 
+- This model classify the samples as noise or "bearing presence" based on the reconstruction error of the autoencoder.
 - This script used a data shape of (number of samples x number of features), unlike tge Conv_AE script that used a datashape of (number of samples x number of timesteps x number of features).
-- The model achieved the best results using STFT features, without MFCC - (When added the other methods the results were almost the same).
-- MFCC performed poorly in this case, even when joined with other pre-processing methods.
-- Increasing the batch size from 32 to 128 did not improve the model performance.
 
 '''
 
@@ -26,8 +24,8 @@ from sklearn.model_selection import train_test_split
 from keras.callbacks import EarlyStopping
 from keras.models import load_model
 from keras_tuner import HyperModel, HyperParameters, BayesianOptimization, Hyperband
-from UN_CNN_Models import VDAE, vdae_model_builder, DENSE
-from UN_CNN_Models_TuningVersion import DENSE_TUNING, vdae_model_builder_Tuning, VDAE_Tuning
+from UN_Models import VDAE, vdae_model_builder, DENSE, DENSE_SIMPLE
+from UN_Models_TuningVersion import DENSE_TUNING, vdae_model_builder_Tuning, VDAE_Tuning, DENSE_TUNING_MFCC
 from AE_Aux_Func import reduce_dimensions, plot_reduced_data, plot_metrics_vs_threshold, find_optimal_threshold_f1, save_metrics_to_csv
 
 
@@ -43,6 +41,10 @@ def define_directories():
             'acel_s': os.path.join(current_dir, 'Dataset_Bearings', 'AMR_STOPPED', 'GOOD', 'ACEL'),
             'audio_new_amr': os.path.join(current_dir, 'Dataset_Bearings', 'NEW_AMR', 'GOOD', 'AUDIO'),
             'accel_new_amr': os.path.join(current_dir, 'Dataset_Bearings', 'NEW_AMR', 'GOOD', 'ACCEL'),
+            'audio_2g': os.path.join(current_dir, 'Dataset_Bearings', 'LAST_TEST', '2_good', 'AUDIO'),
+            'accel_2g': os.path.join(current_dir, 'Dataset_Bearings', 'LAST_TEST', '2_good', 'ACCEL'),
+            'audio_1g': os.path.join(current_dir, 'Dataset_Bearings', 'LAST_TEST', '1_good', 'AUDIO'),
+            'accel_1g': os.path.join(current_dir, 'Dataset_Bearings', 'LAST_TEST', '1_good', 'ACCEL')
         },
         'damaged_bearing': {
             'audio_s': os.path.join(current_dir, 'Dataset_Bearings', 'AMR_STOPPED', 'DAMAGED', 'AUDIO'),
@@ -51,6 +53,12 @@ def define_directories():
             'acel_m': os.path.join(current_dir, 'Dataset_Bearings', 'AMR_MOVEMENT', 'DAMAGED', 'ACEL'),
             'audio_new_amr': os.path.join(current_dir, 'Dataset_Bearings', 'NEW_AMR', 'DAMAGED', 'AUDIO'),
             'accel_new_amr': os.path.join(current_dir, 'Dataset_Bearings', 'NEW_AMR', 'DAMAGED', 'ACCEL'),
+            'audio_1d': os.path.join(current_dir, 'Dataset_Bearings', 'LAST_TEST', '1_damaged', 'AUDIO'),
+            'accel_1d': os.path.join(current_dir, 'Dataset_Bearings', 'LAST_TEST', '1_damaged', 'ACCEL'),
+            'audio_2d': os.path.join(current_dir, 'Dataset_Bearings', 'LAST_TEST', '2_damaged', 'AUDIO'),
+            'accel_2d': os.path.join(current_dir, 'Dataset_Bearings', 'LAST_TEST', '2_damaged', 'ACCEL'),
+            'audio_1d_1g': os.path.join(current_dir, 'Dataset_Bearings', 'LAST_TEST', '1_damaged_1_good', 'AUDIO'),
+            'accel_1d_1g': os.path.join(current_dir, 'Dataset_Bearings', 'LAST_TEST', '1_damaged_1_good', 'ACCEL'),
         },
         'smooth_floor': {
             'audio': os.path.join(current_dir, 'Dataset_Piso', 'LISO', 'SAMPLES_1s', 'AUDIO'),
@@ -81,6 +89,24 @@ def load_and_extract_features(directories):
 
     methods_string = "_".join(method for method, value in config.preprocessing_options.items() if value)
     start_time_pre_proc = time.time()
+    
+    # Process floor noise
+    for audio_file, accel_file in zip(
+        sorted([os.path.join(directories['smooth_floor']['audio'], file) for file in os.listdir(directories['smooth_floor']['audio']) if file.endswith('.WAV')], key=sort_key) +
+        sorted([os.path.join(directories['tiled_floor']['audio'], file) for file in os.listdir(directories['tiled_floor']['audio']) if file.endswith('.WAV')], key=sort_key) +
+        sorted([os.path.join(directories['smooth_floor']['audio_new_amr'], file) for file in os.listdir(directories['smooth_floor']['audio_new_amr']) if file.endswith('.WAV')], key=sort_key),
+        sorted([os.path.join(directories['smooth_floor']['acel'], file) for file in os.listdir(directories['smooth_floor']['acel']) if file.endswith('.csv')], key=sort_key) +
+        sorted([os.path.join(directories['tiled_floor']['acel'], file) for file in os.listdir(directories['tiled_floor']['acel']) if file.endswith('.csv')], key=sort_key) +
+        sorted([os.path.join(directories['smooth_floor']['accel_new_amr'], file) for file in os.listdir(directories['smooth_floor']['accel_new_amr']) if file.endswith('.csv')], key=sort_key)
+    ):
+        audio_features = ppf.extract_audio_features(audio_file, directories['noise_profile'], config.preprocessing_options)
+        accel_features = ppf.extract_accel_features(accel_file)
+        combined = {**audio_features, **accel_features}
+        combined_features.append(combined)
+        labels.append(0)  # 0 for floor noise
+    
+    n_samples_floor_noise = len(combined_features)
+    print(f"Number of samples (Floor Noise): {n_samples_floor_noise}")
 
     # Process good bearings
     for audio_file, accel_file in zip(
@@ -97,9 +123,8 @@ def load_and_extract_features(directories):
         combined_features.append(combined)
         labels.append(1)  # 1 for good bearing
 
-    n_samples_good_bearing = len(combined_features)
+    n_samples_good_bearing = len(combined_features) - n_samples_floor_noise
     print(f"Number of samples (Good Bearing): {n_samples_good_bearing}")
-
     # Process damaged bearings
     for audio_file, accel_file in zip(
         sorted([os.path.join(directories['damaged_bearing']['audio_s'], file) for file in os.listdir(directories['damaged_bearing']['audio_s']) if file.endswith('.WAV')], key=sort_key) +
@@ -114,27 +139,10 @@ def load_and_extract_features(directories):
         combined = {**audio_features, **accel_features}
         combined_features.append(combined)
         labels.append(2)  # 2 for damaged bearing
-
-    n_samples_damaged_bearing = len(combined_features) - n_samples_good_bearing
+    
+    n_samples_damaged_bearing = len(combined_features) - n_samples_floor_noise - n_samples_good_bearing
     print(f"Number of samples (Damaged Bearing): {n_samples_damaged_bearing}")
 
-    # Process floor noise
-    for audio_file, accel_file in zip(
-        sorted([os.path.join(directories['smooth_floor']['audio'], file) for file in os.listdir(directories['smooth_floor']['audio']) if file.endswith('.WAV')], key=sort_key) +
-        sorted([os.path.join(directories['tiled_floor']['audio'], file) for file in os.listdir(directories['tiled_floor']['audio']) if file.endswith('.WAV')], key=sort_key) +
-        sorted([os.path.join(directories['smooth_floor']['audio_new_amr'], file) for file in os.listdir(directories['smooth_floor']['audio_new_amr']) if file.endswith('.WAV')], key=sort_key),
-        sorted([os.path.join(directories['smooth_floor']['acel'], file) for file in os.listdir(directories['smooth_floor']['acel']) if file.endswith('.csv')], key=sort_key) +
-        sorted([os.path.join(directories['tiled_floor']['acel'], file) for file in os.listdir(directories['tiled_floor']['acel']) if file.endswith('.csv')], key=sort_key) +
-        sorted([os.path.join(directories['smooth_floor']['accel_new_amr'], file) for file in os.listdir(directories['smooth_floor']['accel_new_amr']) if file.endswith('.csv')], key=sort_key)
-    ):
-        audio_features = ppf.extract_audio_features(audio_file, directories['noise_profile'], config.preprocessing_options)
-        accel_features = ppf.extract_accel_features(accel_file)
-        combined = {**audio_features, **accel_features}
-        combined_features.append(combined)
-        labels.append(0)  # 0 for floor noise
-
-    n_samples_floor_noise = len(combined_features) - n_samples_good_bearing - n_samples_damaged_bearing
-    print(f"Number of samples (Floor Noise): {n_samples_floor_noise}")
 
     end_time_pre_proc = time.time()
 
@@ -161,8 +169,91 @@ def remove_unused_trials(keras_tuner_dir, project_name, best_trial):
             print(f"Skipping {subdir}")
 
 
+def read_and_concat_data(base_path, preprocessing_options=config.preprocessing_options):
+    # Initialize an empty list to store DataFrames
+    dataframes_noise = []
+    dataframes_bearings = []
+    combined_df = []
+    
+    bearings_path = os.path.join(base_path, 'Bearings_Complete')
+    
+    noise_path = os.path.join(base_path, 'Noise')
+    
+    nr = preprocessing_options.get('noise_reduction', True)
+    
+    preprocessing_options.update({'noise_reduction': False})
+        
+    labels_noise_path = os.path.join(noise_path, 'labels.csv')
+    labels_bearings_path = os.path.join(bearings_path, 'labels.csv')
+    
+    labels_noise = pd.read_csv(labels_noise_path)   
+    labels_bearings = pd.read_csv(labels_bearings_path)
+    labels_bearings['label'] = labels_bearings['label'] + 1
+
+    
+    labels = pd.concat([labels_noise, labels_bearings], axis=0)
+    print(labels.head())
+    print(labels.tail())
+    
+    # Iterate over the preprocessing options
+    for option, include in preprocessing_options.items():
+        if include:
+            # Construct the file name based on the option (assuming CSV file names match keys)
+            if nr:
+                noise_path = os.path.join(noise_path, 'NR')
+                csv_file = os.path.join(noise_path, f"{option}_nr.csv")                
+            else:
+                csv_file = os.path.join(noise_path, f"{option}.csv")
+            
+            try:
+                # Read the CSV file into a DataFrame
+                df = pd.read_csv(csv_file)
+                # Append the DataFrame to the list
+                dataframes_noise.append(df)
+            except FileNotFoundError:
+                print(f"File {csv_file} not found. Skipping...")
+
+    # Iterate over the preprocessing options
+    for option, include in preprocessing_options.items():
+        if include:
+            # Construct the file name based on the option (assuming CSV file names match keys)
+            if nr:
+                bearings_path = os.path.join(bearings_path, 'NR')
+                csv_file = os.path.join(bearings_path, f"{option}_nr.csv")                
+            else:
+                csv_file = os.path.join(bearings_path, f"{option}.csv")
+            
+            try:
+                # Read the CSV file into a DataFrame
+                df = pd.read_csv(csv_file)
+                # Append the DataFrame to the list
+                dataframes_bearings.append(df)
+            except FileNotFoundError:
+                print(f"File {csv_file} not found. Skipping...")
+                
+    # Concatenate all DataFrames along columns (axis=1)
+    if dataframes_noise:
+        combined_df_noise = pd.concat(dataframes_noise, axis=1)
+    else:
+        raise ValueError("No valid dataframes to concatenate.")
+    
+    if dataframes_bearings:
+        combined_df_bearing = pd.concat(dataframes_bearings, axis=1)
+    else:
+        raise ValueError("No valid dataframes to concatenate.")
+    
+    combined_df = pd.concat([combined_df_noise, combined_df_bearing], axis=0)
+    
+
+    print(combined_df.head())
+    
+    return combined_df, labels
+
+
 def main():
 
+    #########################################################################
+    
     # Main execution
     directories = define_directories()
     combined_features, labels, pre_proc_time, pre_proc_string = load_and_extract_features(directories)
@@ -170,7 +261,29 @@ def main():
     # Normalize features
     scaler = StandardScaler()
     features = scaler.fit_transform(combined_features)
+    
+    # Convert features to a DataFrame
+    features_df = pd.DataFrame(features, columns=combined_features.columns)
+    features_df.to_csv('ae_detect_stft_accel.csv', index=False)
 
+    # Convert labels to a DataFrame
+    labels_df = pd.DataFrame(labels, columns=["label"])
+    labels_df.to_csv('ae_detect_labels.csv', index=False)
+    
+    #########################################################################
+    
+    
+    ##############################################################################
+    
+    '''features_df, labels = read_and_concat_data(os.path.join(os.getcwd(), 'Dataset_csv'))
+    print(f'Features Shape: {features_df.shape}')
+    features = features_df.to_numpy()
+    labels = labels['label'].to_numpy()
+    pre_proc_time = -1
+    pre_proc_string = "_".join(method for method, value in config.preprocessing_options.items() if value)'''
+    
+    ##############################################################################
+    
     # Change the model name to the desired model
     model = 'DAE' 
 
@@ -191,6 +304,8 @@ def main():
     
     # Split noise data into training and validation sets
     X_train, X_val_complete, y_train, y_val_complete = train_test_split(noise_samples, noise_labels, test_size=0.2, random_state=42)
+    
+    print(f'X Train Shape: {X_train.shape}')
     
     # Split noise data into training and validation sets
     X_val_complete, X_test_complete, y_val_complete, y_test_complete = train_test_split(X_val_complete, y_val_complete, test_size=0.35, random_state=42)
@@ -244,7 +359,7 @@ def main():
     
     # Epochs and batch size
     epochs = 300
-    batch_size = 128
+    batch_size = 256
     
     # Only for VDAE
     latent_dim = 32
@@ -252,7 +367,6 @@ def main():
     # Define directories
     current_dir = os.getcwd()    
     project_name = 'AE_TB_' + str(batch_size) + 'bs_' + pre_proc_string
-    #pre_proc_string = pre_proc_string + '_96k'
     model_string = 'DAE'
     
     if model == 'VDAE':
@@ -266,14 +380,19 @@ def main():
     save_parameters_name = f"{model_string}_{pre_proc_string}_bs_{batch_size}_parameters.json"        
     metrics_file_name = f"{model_string}_{pre_proc_string}_bs_{batch_size}_results.csv"
     
-    output_dir_metrics = os.path.join(current_dir, 'AE_Results', 'NEW_AMR')
-    model_save_path = os.path.join(current_dir, 'AE_Models', 'NEW_AMR', model_name)
+    output_dir_metrics = os.path.join(current_dir, 'AE_Results', 'NEW_AMR', 'IMPROVED_DATASET')
+    model_save_path = os.path.join(current_dir, 'AE_Models', 'NEW_AMR', 'IMPROVED_DATASET', 'Detection', model_name)
+    os.makedirs(os.path.join(current_dir, 'AE_Models', 'NEW_AMR', 'IMPROVED_DATASET', 'Detection'), exist_ok=True)
         
     # For Bayesian tuning
-    model_save_path_tuner = os.path.join(current_dir, 'AE_Models', 'NEW_AMR', 'Bayesian', model_name) 
-    parameters_save_path = os.path.join(current_dir, 'AE_Models', 'NEW_AMR', 'Bayesian', save_parameters_name)
-    output_dir_metrics_tuner = os.path.join(current_dir, 'AE_Models', 'NEW_AMR', 'Bayesian') 
-    tuner_dir = os.path.join(current_dir, 'Bayesian_Tuning', 'NEW_AMR', 'AE_DENSE')    
+    model_save_path_tuner = os.path.join(current_dir, 'AE_Models', 'NEW_AMR', 'IMPROVED_DATASET', 'Bayesian', 'Detection', model_name) 
+    os.makedirs(os.path.join(current_dir, 'AE_Models', 'NEW_AMR', 'IMPROVED_DATASET', 'Bayesian', 'Detection'), exist_ok=True)
+    parameters_save_path = os.path.join(current_dir, 'AE_Models', 'NEW_AMR', 'IMPROVED_DATASET', 'Bayesian', 'Detection', save_parameters_name)
+    os.makedirs(os.path.join(current_dir, 'AE_Models', 'NEW_AMR', 'IMPROVED_DATASET', 'Bayesian', 'Detection'), exist_ok=True)
+    output_dir_metrics_tuner = os.path.join(current_dir, 'AE_Models', 'NEW_AMR', 'Bayesian', 'IMPROVED_DATASET', 'Detection') 
+    os.makedirs(os.path.join(current_dir, 'AE_Models', 'NEW_AMR', 'Bayesian', 'IMPROVED_DATASET', 'Detection'), exist_ok=True)
+    tuner_dir = os.path.join(current_dir, 'Bayesian_Tuning', 'NEW_AMR', 'AE_DENSE', 'IMPROVED_DATASET', 'Detection')    
+    os.makedirs(os.path.join(current_dir, 'Bayesian_Tuning', 'NEW_AMR', 'AE_DENSE', 'IMPROVED_DATASET', 'Detection'), exist_ok=True)
     
     # Early stopping setup
     early_stopping = EarlyStopping(monitor='val_loss', mode='min', patience=50, restore_best_weights=True, verbose=2)
@@ -282,29 +401,29 @@ def main():
     
     ## For Hypertuning, uncomment the following block and comment the block below it
     ## For training and testing the model with default parameters, comment the following block
-
+    '''
     tuning = True
     
     # Define the BayesianOptimization tuner
     tuner = BayesianOptimization(
-        hypermodel=DENSE_TUNING(input_shape),
+        hypermodel=DENSE_TUNING_MFCC(input_shape),
         objective='val_loss',
-        max_trials=20,
+        max_trials=15,
         executions_per_trial=2,
         directory=tuner_dir,
         project_name=project_name
     )
     
-    '''tuner_hyper = Hyperband(
-        hypermodel=DENSE_TUNING(input_shape),
-        objective=Objective("val_loss", direction="min"),
-        #max_trials=10,
-        #executions_per_trial=2,
-        max_epochs=epochs,
-        factor=3,
-        directory=tuner_dir,
-        project_name=project_name
-    )'''
+    #tuner_hyper = Hyperband(
+    #    hypermodel=DENSE_TUNING(input_shape),
+    #    objective=Objective("val_loss", direction="min"),
+         #max_trials=10,
+    #    #executions_per_trial=2,
+    #    max_epochs=epochs,
+    #    factor=3,
+    #    directory=tuner_dir,
+    #    project_name=project_name
+    #)
 
     try:
         # Attempt to load the best model        
@@ -315,7 +434,7 @@ def main():
         print("No best model found. Performing search.")
 
         # Perform Bayesian optimization
-        tuner.search(X_train, X_train, epochs=epochs, batch_size=batch_size, callbacks=[early_stopping], validation_split=0.1, verbose=1)
+        tuner.search(X_train, X_train, epochs=epochs, batch_size=batch_size, callbacks=[early_stopping], validation_split=0.2, verbose=1)
         
         # Try again to get the best model after the search
         try:
@@ -336,7 +455,7 @@ def main():
             
         except IndexError:
             print("Search completed, but no best model was found.")
-            exit(1)
+            exit(1)'''
             
     ######################################################################################################################
     
@@ -346,29 +465,21 @@ def main():
     ## For training and testing the model with default parameters, uncomment the following block and comment the block above it
     ## You can also use this block for hyperparameter tuning, but you will have to manually set the hyperparameters
     ## For automatic hyperparameter tuning, comment the following block
-    '''
     tuning = False  
     
-    if(config.model_load and os.path.exists(model_save_path)):
-        autoencoder = load_model(model_save_path)
+    if(config.model_load and os.path.exists(model_save_path_tuner)):
+        autoencoder = load_model(model_save_path_tuner)
     
     else:
         autoencoder = DENSE(
-                    # Hyperparameters from Bayesian Optimization with STFT features
+                    # Hyperparameters from Bayesian Optimization with STFT features                    
                     input_dim=input_shape,                       # Replace with your actual input dimension
-                    noise_factor=0.1,                            # Custom noise factor
-                    units_1=352,                                 # Custom number of units for first dense layer
-                    dropout_1=0.2,                               # Custom dropout rate for first layer
-                    units_2=160,                                 # Custom number of units for second dense layer
-                    dropout_2=0.3,                               # Custom dropout rate for second layer
-                    units_3=128,                                 # Custom number of units for third dense layer
-                    bottleneck_units=24,                         # Custom number of bottleneck units
-                    dropout_3=0.3,                               # Custom dropout rate for first decoder layer
-                    dropout_4=0.2,                               # Custom dropout rate for second decoder layer
-                    l1=1.875817536732116e-05,                    # Custom L1 regularization factor
-                    l2=1.2415922129884135e-05,                   # Custom L2 regularization factor
-                    learning_rate=0.00139288326019166
+                    units_1=448,                                 # Custom number of units for first dense layer
+                    units_2=256,                                 # Custom number of units for second dense layer
+                    bottleneck_units=54,                         # Custom number of units for bottleneck layer
         ).build()
+        
+        #autoencoder = DENSE_SIMPLE(input_dim=input_shape).build()
             
         history = autoencoder.fit(X_train, X_train, epochs=epochs, batch_size=batch_size, callbacks=[early_stopping], validation_split=0.1, verbose=2)
         
@@ -382,8 +493,8 @@ def main():
         plt.ylabel('Loss')
         plt.xlabel('Epoch')
         plt.legend(loc='upper right')
-        plt.show()      
-        '''
+        plt.show()
+        
     ######################################################################################################################
     
     autoencoder.summary()
@@ -409,7 +520,7 @@ def main():
     combined_val_errors = np.concatenate([val_errors, bearing_val_errors])
     combined_val_labels = np.concatenate([y_val_binary, y_bearing_binary])
 
-    '''# Calculate precision, recall, and thresholds
+    # Calculate precision, recall, and thresholds
     precision, recall, thresholds = precision_recall_curve(combined_val_labels, combined_val_errors)
 
     # Calculate the absolute difference between precision and recall
@@ -419,17 +530,16 @@ def main():
     optimal_idx = np.argmin(diff)   
 
     # Get the optimal threshold
-    optimal_threshold = thresholds[optimal_idx]'''
-    #optimal_threshold = 0.4612
+    optimal_threshold = thresholds[optimal_idx]
     
     #optimal_threshold = find_optimal_threshold_f1(combined_val_errors, combined_val_labels)
     
-    # Calculate ROC curve
+    '''# Calculate ROC curve
     fpr, tpr, thresholds = roc_curve(combined_val_labels, combined_val_errors)
 
     # Find the optimal threshold
-    optimal_idx = np.argmax(tpr - fpr)  # This gives you the threshold with the maximum difference between TPR and FPR
-    optimal_threshold = thresholds[optimal_idx]
+    optimal_idx = np.argmax(tpr - fpr)              # This gives you the threshold with the maximum difference between TPR and FPR
+    optimal_threshold = thresholds[optimal_idx]'''
 
     print(f"Optimal Threshold: {optimal_threshold}")
     
@@ -444,7 +554,55 @@ def main():
     # Combine the noise and bearing errors
     combined_test_errors = np.concatenate([noise_test_errors, bearing_test_errors])
     combined_test_labels = np.concatenate([y_test, bearings_test_labels_ae])
+    
+    # Plotting the error distribution
+    plt.figure(figsize=(10, 6))
+    plt.hist(noise_test_errors, bins=50, alpha=0.7, label='Noise Test Errors', color='orange')
+    plt.hist(bearing_test_errors, bins=50, alpha=0.7, label='Bearing Test Errors', color='blue')
+    plt.title('Error Distribution for Noise and Bearing Test Samples')
+    plt.xlabel('Reconstruction Error')
+    plt.ylabel('Frequency')
+    plt.legend()
+    plt.grid(True)
+    plt.show()
 
+    probs_df = pd.DataFrame({
+        'True Label': combined_test_labels,  # Assuming y_test is the true binary labels array
+        'Predicted Probability': combined_test_errors.flatten()
+    })
+
+    # Map the true labels to their corresponding names for better visualization
+    probs_df['Label Name'] = probs_df['True Label'].map({0: 'Noise', 1: 'Bearing'})
+
+    # Set up the figure
+    plt.figure(figsize=(12, 6))
+
+    # Define a custom color palette with greenish for Healthy and reddish for Damaged
+    palette = ['#66c2a5', '#fc8d62']  # Colors: greenish for Healthy, reddish for Damaged
+    label_names = ['Noise', 'Bearing']
+    color_map = dict(zip(label_names, palette))
+
+    # Plot histograms with KDE disabled for better control over KDE plots
+    sns.histplot(data=probs_df, x='Predicted Probability', hue='Label Name', kde=False, bins=50, palette=color_map, alpha=0.4)
+
+    # Plot KDE curves separately for each label to ensure correct color and labeling
+    for label in label_names:
+        sns.kdeplot(
+            data=probs_df[probs_df['Label Name'] == label],
+            x='Predicted Probability',
+            color=color_map[label],
+            label=f'{label} Curve',
+            linewidth=2
+        )
+    threshold_string = str(round(optimal_threshold, 2))
+    # Customize the plot
+    plt.xlabel('Predicted Probability')
+    plt.ylabel('Density')
+    plt.title('Error Distribution for Noise and Bearing Test Samples')
+    plt.axvline(optimal_threshold, color='red', linestyle='--', label='Decision Threshold (' + threshold_string + ')')
+    # Place the legend inside the plot in the upper right
+    plt.legend(title='True Label', loc='upper right')
+    plt.show()
     # Determine which samples are anomalies based on the optimal threshold
     test_anomalies = combined_test_errors > optimal_threshold
 
