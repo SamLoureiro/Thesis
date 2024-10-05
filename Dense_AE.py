@@ -264,11 +264,11 @@ def main():
     
     # Convert features to a DataFrame
     features_df = pd.DataFrame(features, columns=combined_features.columns)
-    features_df.to_csv('ae_detect_stft_accel.csv', index=False)
+    #features_df.to_csv('ae_detect_stft_accel.csv', index=False)
 
     # Convert labels to a DataFrame
     labels_df = pd.DataFrame(labels, columns=["label"])
-    labels_df.to_csv('ae_detect_labels.csv', index=False)
+    #labels_df.to_csv('ae_detect_labels.csv', index=False)
     
     #########################################################################
     

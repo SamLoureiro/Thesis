@@ -679,16 +679,21 @@ def vdae_model_builder(input_shape, latent_dim):
     model.compile(optimizer='adam')
     return model
 
+
+# Units 1 = 448 for STFT
+# Units 2 = 256 for MFCC
+# Bottleneck = 64 for STFT
+
 class DENSE:
     def __init__(
         self, 
         input_dim, 
         noise_factor=0.1,
-        units_1=128, 
+        units_1=448, 
         dropout_1=0.1, 
-        units_2=64, 
+        units_2=256, 
         dropout_2=0.2, 
-        bottleneck_units=16, 
+        bottleneck_units=64, 
         dropout_3=0.2, 
         dropout_4=0.1, 
         l1=1e-4, 
@@ -744,6 +749,11 @@ class DENSE:
         autoencoder.compile(optimizer=Adam(learning_rate=self.learning_rate), loss='mse')        
         return autoencoder
 
+
+# Units 1 = 16 for MFCC
+# Units 1 = 32 for MFCC + ACCEL
+# Bottleneck = 8 for MFCC
+# Bottleneck = 16 for MFCC + ACCEL
 
 class DENSE_SIMPLE:
     def __init__(
